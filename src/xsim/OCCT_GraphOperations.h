@@ -71,10 +71,10 @@ public:
 
     static double ComputeAngle(const gp_Vec& v1, const gp_Vec& v2);
 
-    //@brief 根据节点坐标和单元信息创建OCC网格形状
-    //@param nodeCoords 节点坐标数组，格式为 [x1, y1, z1, x2, y2, z2, ...]
-    //@param elemTypes 单元类型数组，每个元素对应一个单元的类型标识符
-    //@param elemNodeTags 单元节点标签数组，每个元素为一个单元的节点索引列表
+	//@brief 根据节点坐标和单元信息创建OCC网格形状
+	//@param nodeCoords 节点坐标数组，格式为 [x1, y1, z1, x2, y2, z2, ...]
+	//@param elemTypes 单元类型数组，每个元素对应一个单元的类型标识符
+	//@param elemNodeTags 单元节点标签数组，每个元素为一个单元的节点索引列表
     static TopoDS_Shape CreatOCCMeshShape(const std::vector<double>& nodeCoords,
         const std::vector<int>& elemTypes,
         const std::vector<std::vector<std::size_t>>& elemNodeTags);
@@ -86,7 +86,7 @@ public:
     static void PrintMeshInfo(int NodeNum, std::vector<int> elemTypes, std::vector<std::vector<std::size_t>> elemTags);
 
     // @brief 根据四个顶点创建四面体实体
-    static TopoDS_Solid CreateTetrahedronSolid(const gp_Pnt& p0, const gp_Pnt& p1, const gp_Pnt& p2, const gp_Pnt& p3);
+	static TopoDS_Solid CreateTetrahedronSolid(const gp_Pnt& p0, const gp_Pnt& p1, const gp_Pnt& p2, const gp_Pnt& p3);
 
     // @brief 根据八个顶点创建六面体实体
     static TopoDS_Solid CreateHexahedronSolid(const std::vector<TopoDS_Vertex>& points);

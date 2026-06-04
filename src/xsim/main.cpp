@@ -1,4 +1,4 @@
-﻿#include "Icon.h"
+#include "Icon.h"
 #include "ComplainUtf8.h"
 #include "mainwindow.h"
 
@@ -8,13 +8,21 @@
 #include <QCommandLineOption>
 #include <Windows.h>
 #include <qfontdatabase.h>
+// 手动初始化VTK
+//#include<vtkAutoInit.h>
 
 #define __APP_NAME__ "XSim"
 
 int main(int argc, char *argv[])
-{SetConsoleOutputCP(CP_UTF8);
+{
     Q_INIT_RESOURCE(mdi);
     QApplication app(argc, argv);
+
+
+    //VTK_MODULE_INIT(vtkRenderingOpenGL2)
+    //VTK_MODULE_INIT(vtkInteractionStyle);
+    //VTK_MODULE_INIT(vtkRenderingFreeType);
+
     app.setWindowIcon(QIcon(ICON_APP));
     QCoreApplication::setApplicationName(__APP_NAME__);
     QCoreApplication::setApplicationVersion(QT_VERSION_STR);

@@ -1,0 +1,156 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="src\cutsim\cutsim\bbox.cpp" />
+    <ClCompile Include="src\cutsim\broaching\cutsim_broaching.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\cuda_functions.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\cutsim.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\gldata.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\machine.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\marching_cubes.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\octnode.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\octree.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\volume.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\mfem_analysis1.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\mfem_mesh_writer.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\stl.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\lex_analyzer.cpp" />
+    <ClCompile Include="src\xsim\AngleDialog.cpp" />
+    <ClCompile Include="src\xsim\BoundaryConditionDialog.cpp" />
+    <ClCompile Include="src\xsim\GUI_Message.cpp" />
+    <ClCompile Include="src\xsim\main.cpp" />
+    <ClCompile Include="src\xsim\MainWindow.cpp" />
+    <ClCompile Include="src\xsim\MainWindow2.cpp" />
+    <ClCompile Include="src\xsim\mdichild.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action1.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action2.cpp" />
+    <ClCompile Include="src\xsim\mdichild_init.cpp" />
+    <ClCompile Include="src\xsim\mdichild_slots.cpp" />
+    <ClCompile Include="src\xsim\MeshManager.cpp" />
+    <ClCompile Include="src\xsim\Msg.cpp" />
+    <ClCompile Include="src\xsim\MsgUI.cpp" />
+    <ClCompile Include="src\xsim\MyDocument.cpp" />
+    <ClCompile Include="src\xsim\MyViewer.cpp" />
+    <ClCompile Include="src\xsim\OCCT_GraphDriver.cpp" />
+    <ClCompile Include="src\xsim\OCCT_GraphOperations.cpp" />
+    <ClCompile Include="src\xsim\OCCT_ShapeExport.cpp" />
+    <ClCompile Include="src\xsim\OCCT_ShapeImport.cpp" />
+    <ClCompile Include="src\xsim\OcctView.cpp" />
+    <ClCompile Include="src\xsim\OcctWindow.cpp" />
+    <ClCompile Include="src\xsim\OcctWindow.cxx" />
+    <ClCompile Include="src\xsim\ProjectTree.cpp" />
+    <ClCompile Include="src\xsim\PropertyView.cpp" />
+    <ClCompile Include="src\xsim\QShapeExportUI.cpp" />
+    <ClCompile Include="src\xsim\QShapeImportUI.cpp" />
+    <ClCompile Include="src\xsim\TranslationDialog.cpp" />
+    <ClCompile Include="src\xsim\MaterialDialog.cpp" />
+    <ClCompile Include="src\xsim\Viewer.cpp" />
+    <ClCompile Include="src\xsim\ViewerInteractor.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_FEM.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_cutsim.cpp" />
+    <ClCompile Include="src\xsim\ForceMonitorWidget.cpp" />
+    <ClCompile Include="src\xsim\StraightnessMonitorWidget.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\fileparser.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\heidenhainclient.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\heidenhaincommand.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\mchconfig.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\serialportcom.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\simensclient.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\simenscommand.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\vtkwidget.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_digitaltwin.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_serialport.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\curve_widget.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\glwidget.cpp" />
+    <ClCompile Include="src\cutsim\milling\cutsim_milling.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_mchconfig.cpp" />
+    <ClCompile Include="src\digitaltwin\digitaltwin_milling\digitaltwin_milling.cpp" />
+    <ClCompile Include="src\digitaltwin\digitaltwinctrl.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\cutsim\cutsim_def.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\bbox.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\cube_wireframe.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\cuda_functions.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\facet.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\gldata.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\isosurface.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\machine.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\marching_cubes.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\octnode.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\octree.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\mfem_analysis1.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\mfem_mesh_writer.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\stl.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\lex_analyzer.hpp" />
+    <ClInclude Include="src\xsim\ComplainUtf8.h" />
+    <ClInclude Include="src\xsim\Icon.h" />
+    <ClInclude Include="src\xsim\Msg.h" />
+    <ClInclude Include="src\xsim\MsgUI.h" />
+    <ClInclude Include="src\xsim\MyDocument.h" />
+    <ClInclude Include="src\xsim\OCCT_GraphDriver.h" />
+    <ClInclude Include="src\xsim\OCCT_GraphOperations.h" />
+    <ClInclude Include="src\xsim\OCCT_ShapeExport.h" />
+    <ClInclude Include="src\xsim\OCCT_ShapeImport.h" />
+    <ClInclude Include="src\xsim\OCCT_ShapeList.h" />
+    <ClInclude Include="src\xsim\OCCT_Utf8String.h" />
+    <ClInclude Include="src\xsim\OCCT_Utf8StringList.h" />
+    <ClInclude Include="src\xsim\OcctWindow.h" />
+    <ClInclude Include="src\xsim\QShapeExportUI.h" />
+    <ClInclude Include="src\xsim\QShapeImportUI.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="src\xsim\OcctVisualizer.hpp" />
+    <ClInclude Include="src\xsim\Viewer.h" />
+    <ClInclude Include="src\xsim\ViewerInteractor.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\fileparser.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\heidenhainclient.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\heidenhaincommand.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\simensclient.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\simenscommand.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\ui_vtkwidget.h" />
+    <ClInclude Include="src\cutsim\cutsim\glvertex.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+    <None Include="mch\UCP800DURO-Tr10l100-toolspindle-server.mch" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtMoc Include="src\cutsim\cutsim\cutsim.hpp" />
+    <QtMoc Include="src\cutsim\cutsim\volume.hpp" />
+    <QtMoc Include="src\cutsim\cutsim\glwidget.hpp" />
+    <QtMoc Include="src\xsim\AngleDialog.h" />
+    <QtMoc Include="src\xsim\BoundaryConditionDialog.h" />
+    <QtMoc Include="src\xsim\GUI_Message.h" />
+    <QtMoc Include="src\xsim\MainWindow.h" />
+    <QtMoc Include="src\xsim\mdichild.h" />
+    <QtMoc Include="src\xsim\MeshManager.h" />
+    <QtMoc Include="src\xsim\MyViewer.h" />
+    <QtMoc Include="src\xsim\OcctView.h" />
+    <QtMoc Include="src\xsim\ProjectTree.h" />
+    <QtMoc Include="src\xsim\PropertyView.h" />
+    <QtMoc Include="src\xsim\TranslationDialog.h" />
+    <QtMoc Include="src\xsim\MaterialDialog.h" />
+    <QtMoc Include="src\cutsim\broaching\cutsim_broaching.hpp" />
+    <QtMoc Include="src\xsim\ForceMonitorWidget.hpp" />
+    <QtMoc Include="src\xsim\StraightnessMonitorWidget.h" />
+    <QtMoc Include="src\digitaltwin\monitoring\mchconfig.h" />
+    <QtMoc Include="src\digitaltwin\monitoring\serialportcom.h" />
+    <QtMoc Include="src\digitaltwin\monitoring\vtkwidget.h" />
+    <QtMoc Include="src\cutsim\cutsim\curve_widget.hpp" />
+    <QtMoc Include="src\cutsim\milling\cutsim_milling.hpp" />
+    <QtMoc Include="src\digitaltwin\digitaltwin_milling\digitaltwin_milling.hpp" />
+    <QtMoc Include="src\digitaltwin\digitaltwinctrl.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtRcc Include="src\xsim\mdi.qrc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="XCutsim.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtUic Include="src\digitaltwin\monitoring\vtkwidget.ui" />
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="cuda_diff_volume.cu" />
+  </ItemGroup>
+</Project>

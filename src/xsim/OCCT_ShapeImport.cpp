@@ -1,4 +1,4 @@
-﻿#pragma execution_character_set("utf-8")
+﻿//#pragma execution_character_set("utf-8")
 #include "OCCT_ShapeImport.h"
 #include "ComplainUtf8.h"
 #include <Transfer_TransientProcess.hxx>

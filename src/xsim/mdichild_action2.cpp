@@ -1,6 +1,7 @@
-﻿#include <QApplication>
+#include <QApplication>
 #include "ComplainUtf8.h"
 #include "mdichild.h"
+#include "OCCT_GraphOperations.h"
 #include "OCCT_ShapeList.h"
 #include "QShapeImportUI.h"
 #include "QShapeExportUI.h"
@@ -15,9 +16,12 @@
 #include "BoundaryConditionDialog.h"
 #include <QFileInfo>
 #include <QMessageBox>
+#include <QFuture>
 #include "AngleDialog.h"
 #include <QPushButton>
+#include <QThread>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <AIS_Triangulation.hxx>
@@ -28,6 +32,7 @@
 #include <Geom_CartesianPoint.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Lin.hxx>
 #include <Prs3d_PointAspect.hxx>
 #include <algorithm>  // 包含 std::reverse
@@ -88,6 +93,105 @@ namespace
         groupedPointData.push_back(xyzDir);
     }
 
+    std::vector<double> makeDiscretePointData(const gp_Pnt& point, const gp_Vec& dir)
+    {
+        // 将一个离散点保存为：x、y、z、切向量x、切向量y、切向量z。
+        return { point.X(), point.Y(), point.Z(), dir.X(), dir.Y(), dir.Z() };
+    }
+
+    void appendDiscreteGroupToFlatData(
+        const std::vector<std::vector<double>>& groupedPointData,
+        std::vector<std::array<double, 3>>& flatPoints,
+        std::vector<std::vector<double>>& flatPointData)
+    {
+        // 所有工作线程结束后，再把按刀刃分组的数据展开到全局点数组中。
+        for (const std::vector<double>& pointData : groupedPointData) {
+            if (pointData.size() < 6) {
+                continue;
+            }
+            flatPoints.push_back(std::array<double, 3>{ pointData[0], pointData[1], pointData[2] });
+            flatPointData.push_back(pointData);
+        }
+    }
+
+    struct DiscreteWireResult
+    {
+        // 保存原始 wire 序号，方便并行结束后按原来的显示顺序恢复结果。
+        int wireIndex = -1;
+        std::vector<std::vector<double>> pointGroup;
+        QString errorMessage;
+    };
+
+    DiscreteWireResult sampleWireDiscretePoints(TopoDS_Wire wire, int numPoints, int wireIndex)
+    {
+        // 这个函数用于工作线程：这里只做几何采样计算。
+        // 不要在这里访问 Qt 控件、AIS 上下文或 AngleDialog 的共享数组。
+        DiscreteWireResult result;
+        result.wireIndex = wireIndex;
+
+        try {
+            std::vector<std::pair<gp_Pnt, gp_Vec>> samples;
+            OCCT_GraphOperations::SampleWireUniformly(samples, wire, numPoints);
+            result.pointGroup.reserve(samples.size());
+            for (const auto& sample : samples) {
+                result.pointGroup.push_back(makeDiscretePointData(sample.first, sample.second));
+            }
+        }
+        catch (Standard_Failure& e) {
+            result.errorMessage = QString::fromLocal8Bit(e.GetMessageString());
+        }
+        catch (...) {
+            result.errorMessage = QStringLiteral("unknown error while sampling wire");
+        }
+
+        return result;
+    }
+
+    std::vector<std::vector<double>> sampleEdgeDiscretePoints(const TopoDS_Edge& edge, int numPoints)
+    {
+        // 单条边没有可拆分的独立任务，直接在调用线程中采样即可。
+        std::vector<std::vector<double>> pointGroup;
+        pointGroup.reserve(numPoints);
+
+        BRepAdaptor_Curve adaptorCurve(edge);
+        const Standard_Real startParam = adaptorCurve.FirstParameter();
+        const Standard_Real endParam = adaptorCurve.LastParameter();
+        const Standard_Real uStep = (numPoints > 1) ? (endParam - startParam) / (numPoints - 1) : 0.0;
+
+        for (Standard_Integer i = 0; i < numPoints; ++i) {
+            const Standard_Real u = (numPoints > 1) ? startParam + i * uStep : startParam;
+            gp_Pnt point;
+            gp_Vec dir;
+            adaptorCurve.D1(u, point, dir);
+            pointGroup.push_back(makeDiscretePointData(point, dir));
+        }
+
+        return pointGroup;
+    }
+
+    TopoDS_Compound buildDiscretePointCompound(
+        const std::vector<std::vector<std::vector<double>>>& groupedPointData)
+    {
+        // 把所有预览点合成一个 compound。
+        // 一次显示一个 AIS 对象，比逐个显示几千个顶点快很多。
+        TopoDS_Compound pointCompound;
+        BRep_Builder builder;
+        builder.MakeCompound(pointCompound);
+
+        for (const auto& edgeGroup : groupedPointData) {
+            for (const std::vector<double>& pointData : edgeGroup) {
+                if (pointData.size() < 3) {
+                    continue;
+                }
+                const gp_Pnt point(pointData[0], pointData[1], pointData[2]);
+                const TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(point);
+                builder.Add(pointCompound, vertex);
+            }
+        }
+
+        return pointCompound;
+    }
+
     void rebuildFlatPointDataFromGroups(
         const std::vector<std::vector<std::vector<double>>>& groupedPointData,
         std::vector<std::vector<double>>& flatPointData)
@@ -98,11 +202,12 @@ namespace
         }
     }
 
-    bool exportCuttingEdgePointsToFile(
+    bool writeCuttingEdgePointsToFile(
         const std::vector<std::array<double, 12>>& edgePoints,
         const QString& folderPath,
         int fileIndex,
-        const QString& fileBaseName)
+        const QString& fileBaseName,
+        QString* errorMessage = nullptr)
     {
         if (edgePoints.empty()) {
             return true;
@@ -110,7 +215,9 @@ namespace
 
         QDir exportDir(folderPath);
         if (!exportDir.exists() && !exportDir.mkpath(".")) {
-            Msg::ShowError("无法创建切削刃导出文件夹。");
+            if (errorMessage != nullptr) {
+                *errorMessage = QStringLiteral("无法创建切削刃导出文件夹。");
+            }
             return false;
         }
 
@@ -118,18 +225,16 @@ namespace
         const QString filePath = exportDir.filePath(fileName);
         QFile file(filePath);
         if (!file.open(QFile::WriteOnly | QFile::Text)) {
-            Msg::ShowError("无法打开切削刃导出文件，请检查路径或权限。");
+            if (errorMessage != nullptr) {
+                *errorMessage = QStringLiteral("无法打开切削刃导出文件，请检查路径或权限：%1").arg(filePath);
+            }
             return false;
         }
 
         QTextStream outFile(&file);
-        std::vector<std::array<double, 12>> sortedEdgePoints = edgePoints;
-        std::sort(sortedEdgePoints.begin(), sortedEdgePoints.end(),
-            [](const std::array<double, 12>& lhs, const std::array<double, 12>& rhs) {
-                return lhs[0] < rhs[0];
-            });
-
-        for (const auto& point : sortedEdgePoints) {
+        // Preserve the sampled contour order. Material removal treats adjacent rows
+        // as connected blade edges, so sorting by X corrupts stepped/concave profiles.
+        for (const auto& point : edgePoints) {
             outFile << point[0] << "\t" << point[1] << "\t" << point[2] << "\t"
                 << point[3] << "\t" << point[4] << "\t" << point[5] << "\t"
                 << point[6] << "\t" << point[7] << "\t" << point[8] << "\t"
@@ -138,6 +243,20 @@ namespace
         outFile.flush();
         file.close();
         return true;
+    }
+
+    bool exportCuttingEdgePointsToFile(
+        const std::vector<std::array<double, 12>>& edgePoints,
+        const QString& folderPath,
+        int fileIndex,
+        const QString& fileBaseName)
+    {
+        QString errorMessage;
+        const bool success = writeCuttingEdgePointsToFile(edgePoints, folderPath, fileIndex, fileBaseName, &errorMessage);
+        if (!success && !errorMessage.isEmpty()) {
+            Msg::ShowError(errorMessage.toLocal8Bit().constData());
+        }
+        return success;
     }
 
     bool exportCuttingEdgeFileList(
@@ -259,6 +378,323 @@ namespace
         }
 
         return false;
+    }
+
+    struct CuttingConditionContext
+    {
+        std::vector<TopoDS_Face> rakeFaces;
+        std::vector<TopoDS_Face> clearanceFaces;
+        gp_Vec cuttingVec;
+        gp_Vec cuttingDep;
+        gp_Vec cuttingDepDir1;
+        gp_Vec cuttingDepDir2;
+    };
+
+    struct CuttingConditionGroupResult
+    {
+        int groupIndex = -1;
+        std::vector<std::vector<double>> computedGroup;
+        std::vector<std::array<double, 12>> pointsVec;
+        std::vector<QString> errorMessages;
+        int skippedPointCount = 0;
+        int rakeProjectionFallbackCount = 0;
+        int clearanceProjectionFallbackCount = 0;
+    };
+
+    struct PointGroupExtent
+    {
+        bool valid = false;
+        double xRange = 0.0;
+        double zRange = 0.0;
+    };
+
+    PointGroupExtent calculatePointGroupExtent(const std::vector<std::vector<double>>& pointGroup)
+    {
+        PointGroupExtent extent;
+        if (pointGroup.empty()) {
+            return extent;
+        }
+
+        double minX = std::numeric_limits<double>::max();
+        double maxX = -std::numeric_limits<double>::max();
+        double minZ = std::numeric_limits<double>::max();
+        double maxZ = -std::numeric_limits<double>::max();
+
+        for (const std::vector<double>& pointData : pointGroup) {
+            if (pointData.size() < 3) {
+                continue;
+            }
+
+            minX = std::min(minX, pointData[0]);
+            maxX = std::max(maxX, pointData[0]);
+            minZ = std::min(minZ, pointData[2]);
+            maxZ = std::max(maxZ, pointData[2]);
+            extent.valid = true;
+        }
+
+        if (!extent.valid) {
+            return extent;
+        }
+
+        extent.xRange = maxX - minX;
+        extent.zRange = maxZ - minZ;
+        return extent;
+    }
+
+    int filterSecondaryCuttingEdgeGroups(std::vector<std::vector<std::vector<double>>>& pointGroups)
+    {
+        if (pointGroups.size() < 2) {
+            return 0;
+        }
+
+        std::vector<PointGroupExtent> extents;
+        extents.reserve(pointGroups.size());
+        double maxXRange = 0.0;
+        double maxZRange = 0.0;
+
+        for (const auto& pointGroup : pointGroups) {
+            PointGroupExtent extent = calculatePointGroupExtent(pointGroup);
+            extents.push_back(extent);
+            if (extent.valid) {
+                maxXRange = std::max(maxXRange, extent.xRange);
+                maxZRange = std::max(maxZRange, extent.zRange);
+            }
+        }
+
+        if (maxXRange <= 1.0e-6 || maxZRange <= 1.0e-6) {
+            return 0;
+        }
+
+        const double minPrimaryXRange = maxXRange * 0.45;
+        const double minPrimaryZRange = maxZRange * 0.45;
+        std::vector<std::vector<std::vector<double>>> filteredGroups;
+        filteredGroups.reserve(pointGroups.size());
+
+        for (size_t i = 0; i < pointGroups.size(); ++i) {
+            const PointGroupExtent& extent = extents[i];
+            if (extent.valid &&
+                extent.xRange >= minPrimaryXRange &&
+                extent.zRange >= minPrimaryZRange) {
+                filteredGroups.push_back(pointGroups[i]);
+            }
+        }
+
+        if (filteredGroups.empty() || filteredGroups.size() == pointGroups.size()) {
+            return 0;
+        }
+
+        const int removedCount = static_cast<int>(pointGroups.size() - filteredGroups.size());
+        pointGroups.swap(filteredGroups);
+        return removedCount;
+    }
+
+    double computeConditionDepth(
+        const gp_Pnt& pnt,
+        const gp_Vec& depthDir,
+        const CuttingConditionContext& context)
+    {
+        const double depthMagnitude = depthDir.Magnitude();
+        if (depthMagnitude <= Precision::Confusion()) {
+            return 0.0;
+        }
+
+        double depth = 0.0;
+        if (context.cuttingDepDir2.X())
+        {
+            if (pnt.X() > 0)
+                depth = std::abs(depthDir.X() * context.cuttingDep.X() * context.cuttingDepDir1.X()
+                    + depthDir.Y() * context.cuttingDep.Y() * context.cuttingDepDir1.Y()
+                    + depthDir.Z() * context.cuttingDep.Z() * context.cuttingDepDir1.Z()) / depthMagnitude;
+            else
+                depth = std::abs(-depthDir.X() * context.cuttingDep.X() * context.cuttingDepDir1.X()
+                    + depthDir.Y() * context.cuttingDep.Y() * context.cuttingDepDir1.Y()
+                    + depthDir.Z() * context.cuttingDep.Z() * context.cuttingDepDir1.Z()) / depthMagnitude;
+        }
+        if (context.cuttingDepDir2.Y())
+        {
+            if (pnt.Y() > 0)
+                depth = std::abs(depthDir.X() * context.cuttingDep.X() * context.cuttingDepDir1.X()
+                    + depthDir.Y() * context.cuttingDep.Y() * context.cuttingDepDir1.Y()
+                    + depthDir.Z() * context.cuttingDep.Z() * context.cuttingDepDir1.Z()) / depthMagnitude;
+            else
+                depth = std::abs(depthDir.X() * context.cuttingDep.X() * context.cuttingDepDir1.X()
+                    - depthDir.Y() * context.cuttingDep.Y() * context.cuttingDepDir1.Y()
+                    + depthDir.Z() * context.cuttingDep.Z() * context.cuttingDepDir1.Z()) / depthMagnitude;
+        }
+        if (context.cuttingDepDir2.Z())
+        {
+            if (pnt.Z() > 0)
+                depth = std::abs(depthDir.X() * context.cuttingDep.X() * context.cuttingDepDir1.X()
+                    + depthDir.Y() * context.cuttingDep.Y() * context.cuttingDepDir1.Y()
+                    + depthDir.Z() * context.cuttingDep.Z() * context.cuttingDepDir1.Z()) / depthMagnitude;
+            else
+                depth = std::abs(depthDir.X() * context.cuttingDep.X() * context.cuttingDepDir1.X()
+                    + depthDir.Y() * context.cuttingDep.Y() * context.cuttingDepDir1.Y()
+                    - depthDir.Z() * context.cuttingDep.Z() * context.cuttingDepDir1.Z()) / depthMagnitude;
+        }
+
+        return depth;
+    }
+
+    CuttingConditionGroupResult computeCuttingConditionGroup(
+        const std::vector<std::vector<double>>& sourceGroup,
+        int groupIndex,
+        const CuttingConditionContext& context)
+    {
+        CuttingConditionGroupResult result;
+        result.groupIndex = groupIndex;
+        result.computedGroup.reserve(sourceGroup.size());
+        result.pointsVec.reserve(sourceGroup.size());
+
+        BRepClass_FaceClassifier classifier1;
+        BRepClass_FaceClassifier classifier2;
+
+        for (const auto& sourcePoint : sourceGroup) {
+            try {
+                std::vector<double> pointData = sourcePoint;
+                trimPointComputedFields(pointData);
+                if (pointData.size() < 6) {
+                    ++result.skippedPointCount;
+                    continue;
+                }
+
+                bool hasRakeFace = false;
+                bool hasClearanceFace = false;
+                gp_Pnt pnt(pointData[0], pointData[1], pointData[2]);
+                gp_Dir rakefacenormal;
+                vector<TopoDS_Face> m_rakeFaces, m_clearanceFaces;
+                TopoDS_Face m_rakeFace, m_clearanceFace;
+                int rakefaceID = -1;
+
+                for (const TopoDS_Face& rakeFace : context.rakeFaces) {
+                    rakefaceID++;
+                    classifier1.Perform(rakeFace, pnt, 1e-3);
+                    if (classifier1.State() == TopAbs_IN || classifier1.State() == TopAbs_ON)
+                    {
+                        m_rakeFace = rakeFace;
+                        Handle(Geom_Surface) surface = BRep_Tool::Surface(rakeFace);
+                        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+                        if (!plane.IsNull()) {
+                            rakefacenormal = plane->Axis().Direction();
+                        }
+                        m_rakeFaces.push_back(m_rakeFace);
+                        break;
+                    }
+                }
+
+                if (m_rakeFaces.empty()) {
+                    if (findNearestFaceByPointProjection(context.rakeFaces, pnt, 0.5, m_rakeFace)) {
+                        Handle(Geom_Surface) surface = BRep_Tool::Surface(m_rakeFace);
+                        Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
+                        if (!plane.IsNull()) {
+                            rakefacenormal = plane->Axis().Direction();
+                        }
+                        m_rakeFaces.push_back(m_rakeFace);
+                        ++result.rakeProjectionFallbackCount;
+                    }
+                    else {
+                        ++result.skippedPointCount;
+                        continue;
+                    }
+                }
+
+                for (const TopoDS_Face& clearanceFace : context.clearanceFaces) {
+                    classifier2.Perform(clearanceFace, pnt, 1e-3);
+                    if (classifier2.State() == TopAbs_IN || classifier2.State() == TopAbs_ON)
+                    {
+                        m_clearanceFace = clearanceFace;
+                        m_clearanceFaces.push_back(m_clearanceFace);
+                    }
+                }
+                if (m_clearanceFaces.empty()) {
+                    if (findNearestFaceByPointProjection(context.clearanceFaces, pnt, 0.5, m_clearanceFace)) {
+                        m_clearanceFaces.push_back(m_clearanceFace);
+                        ++result.clearanceProjectionFallbackCount;
+                    }
+                    else {
+                        ++result.skippedPointCount;
+                        continue;
+                    }
+                }
+
+                gp_Vec normalVec(pointData[3], pointData[4], pointData[5]);
+                if (normalVec.Magnitude() <= Precision::Confusion()) {
+                    ++result.skippedPointCount;
+                    continue;
+                }
+                gp_Dir edgeTangentDir(normalVec);
+                gp_Pln normalPlane(pnt, edgeTangentDir);
+
+                TopoDS_Edge intersectionRakeEdge;
+                for (int j = 0; j < static_cast<int>(m_rakeFaces.size()); j++)
+                {
+                    m_rakeFace = m_rakeFaces[j];
+                    hasRakeFace = buildNormalPlaneSectionEdge(normalPlane, m_rakeFace, intersectionRakeEdge);
+                    if (hasRakeFace) break;
+                }
+                if (!hasRakeFace) {
+                    ++result.skippedPointCount;
+                    continue;
+                }
+
+                gp_Vec crossA = context.cuttingVec.Crossed(edgeTangentDir);
+                double rakeAngle = -180.0;
+                if (hasRakeFace) {
+                    rakeAngle = OCCT_GraphOperations::ComputeMinAngle(crossA, intersectionRakeEdge, 1e-3);
+                    rakeAngle = rakeAngle / M_PI * 180.0;
+                }
+
+                TopoDS_Edge intersectionClearanceEdge;
+                for (int j = 0; j < static_cast<int>(m_clearanceFaces.size()); j++)
+                {
+                    m_clearanceFace = m_clearanceFaces[j];
+                    hasClearanceFace = buildNormalPlaneSectionEdge(normalPlane, m_clearanceFace, intersectionClearanceEdge);
+                    if (hasClearanceFace) break;
+                }
+
+                gp_Vec crossB = context.cuttingVec.Crossed(crossA);
+                double inclination_angle = -180.0;
+                if (crossB.Magnitude() > Precision::Confusion()) {
+                    const double inclinationCos = std::max(-1.0, std::min(1.0, crossB.Dot(edgeTangentDir) / crossB.Magnitude()));
+                    inclination_angle = std::acos(inclinationCos) / M_PI * 180.0;
+                    if (inclination_angle > 90.0) inclination_angle = 180.0 - inclination_angle;
+                }
+
+                double clearanceAngle = -180.0;
+                if (hasClearanceFace) {
+                    clearanceAngle = OCCT_GraphOperations::ComputeMinAngle(crossA, intersectionClearanceEdge, 1e-3);
+                    clearanceAngle = 90.0 - clearanceAngle / M_PI * 180.0;
+                }
+
+                pointData.push_back(inclination_angle);
+                pointData.push_back(rakeAngle);
+                pointData.push_back(clearanceAngle);
+
+                gp_Vec depth_dir = context.cuttingVec.Crossed(edgeTangentDir);
+                const double depth = computeConditionDepth(pnt, depth_dir, context);
+
+                pointData.push_back(context.cuttingVec.Magnitude());
+                pointData.push_back(depth);
+                pointData.push_back(rakefaceID);
+                pointData.push_back(rakefacenormal.X());
+                pointData.push_back(rakefacenormal.Y());
+                pointData.push_back(rakefacenormal.Z());
+
+                std::array<double, 12> xyzab = buildConditionPointRow(pointData);
+                result.pointsVec.push_back(xyzab);
+                result.computedGroup.push_back(pointData);
+            }
+            catch (Standard_Failure& e) {
+                ++result.skippedPointCount;
+                result.errorMessages.push_back(QString::fromLocal8Bit(e.GetMessageString()));
+            }
+            catch (...) {
+                ++result.skippedPointCount;
+                result.errorMessages.push_back(QStringLiteral("切削工况计算时发生未知异常。"));
+            }
+        }
+
+        return result;
     }
 }
 
@@ -575,7 +1011,7 @@ void MdiChild::MoveModel()
 
 }
 
-void MdiChild::MoveToolModel(bool isAbsolute, double dx, double dy, double dz)
+void MdiChild::MoveToolModel(bool isAbsolute, double dx, double dy, double dz, double a, double b, double c)
 {
     // 获取刀具模型
     if (p_TreeWidget->Planeitem->childCount() == 0) return;
@@ -587,12 +1023,21 @@ void MdiChild::MoveToolModel(bool isAbsolute, double dx, double dy, double dz)
             return;
         }
 
-        // 创建平移变换
-        gp_Trsf translation;
+        // 创建组合变换：先旋转，后平移
+        gp_Trsf transform;
 
         if (isAbsolute) {
-            // 绝对位置移动：移动到指定坐标
+            // 绝对位置：先按 xyz 轴顺序旋转，再平移到指定坐标
+            gp_Trsf rotationX;
+            rotationX.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), a);
+            gp_Trsf rotationY;
+            rotationY.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0)), b);
+            gp_Trsf rotationZ;
+            rotationZ.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), c);
+            gp_Trsf translation;
             translation.SetTranslation(gp_Vec(dx, dy, dz));
+            // 按 xyz 轴顺序组合旋转，最后平移
+            transform = translation * rotationZ * rotationY * rotationX;
         }
         else {
             // 相对位置移动：相对当前位置移动
@@ -605,11 +1050,21 @@ void MdiChild::MoveToolModel(bool isAbsolute, double dx, double dy, double dz)
             double moveY = dy + currentLocation.Y();
             double moveZ = dz + currentLocation.Z();
 
+            // 先按 xyz 轴顺序旋转，再平移
+            gp_Trsf rotationX;
+            rotationX.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), a);
+            gp_Trsf rotationY;
+            rotationY.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0)), b);
+            gp_Trsf rotationZ;
+            rotationZ.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), c);
+            gp_Trsf translation;
             translation.SetTranslation(gp_Vec(moveX, moveY, moveZ));
+            // 按 xyz 轴顺序组合旋转，最后平移
+            transform = translation * rotationZ * rotationY * rotationX;
         }
 
         // 应用变换
-        selectedShape->SetLocalTransformation(translation);
+        selectedShape->SetLocalTransformation(transform);
         h_MyViewer->getAisContext()->Update(selectedShape, Standard_True);
 
         // 如果移动的是模型，同时移动其关联的离散点
@@ -620,15 +1075,14 @@ void MdiChild::MoveToolModel(bool isAbsolute, double dx, double dy, double dz)
                 // 找到关联的离散点，应用相同的变换
                 Handle(AIS_Shape) pointShape = Handle(AIS_Shape)::DownCast(obj);
                 if (!pointShape.IsNull()) {
-                    pointShape->SetLocalTransformation(translation);
+                    pointShape->SetLocalTransformation(transform);
                     h_MyViewer->getAisContext()->Update(pointShape, Standard_True);
                 }
             }
         }
     }
-    //Msg::ShowInfo("刀具模型已移动！");
+    //Msg::ShowInfo("刀具模型已移动和旋转！");
 }
-
 void MdiChild::RotateModel()
 {
     // 检查是否有选中的模型
@@ -1578,6 +2032,172 @@ void MdiChild::EdgeDiscrete() {
 //@brief 边离散 选择几条边，将所有边连接成一条线，对整条线进行均匀离散
 void MdiChild::EdgeConnectDiscrete()
 {
+    {
+        // 开始新一轮边离散前，先清空上一次的离散结果。
+        p_TreeWidget->pointsVec.clear();
+        AngleDialog::pointsAndVec.clear();
+        AngleDialog::groupedPointsAndVec.clear();
+
+        // AIS/Qt 对象不是线程安全的，读取选择对象必须放在 UI 线程。
+        h_MyViewer->getAisContext()->Deactivate();
+        h_MyViewer->getAisContext()->Activate(AIS_Shape::SelectionMode(TopAbs_EDGE));
+        Handle_AIS_InteractiveContext myContext = h_MyViewer->getAisContext();
+        if (myContext.IsNull()) {
+            Msg::ShowError("AIS context is null.");
+            return;
+        }
+
+        std::vector<TopoDS_Edge> edge_vec;
+        const bool hasFaces = !AngleDialog::rakeFaces.empty() && !AngleDialog::clearanceFaces.empty();
+        if (hasFaces) {
+            // 如果前刀面和后刀面已经存在，就从它们的公共边里自动提取切削刃。
+            collectSharedEdgesFromFaces(AngleDialog::rakeFaces, AngleDialog::clearanceFaces, edge_vec);
+            Standard_Character Buffer[1024] = { 0 };
+            Sprintf(Buffer, "auto collected cutting edge count: %i", static_cast<int>(edge_vec.size()));
+            Msg::ShowInfo(Buffer);
+        }
+
+        if (edge_vec.empty()) {
+            // 如果没有自动提取到边，则退回到手动选择的边对象。
+            int selectCount = myContext->NbSelected();
+            if (selectCount == 0) {
+                Msg::ShowInfo("Please select edges first.");
+                QEventLoop loop;
+                QObject::connect(h_MyViewer->getSignals(), &MyViewerSignals::selectionChangedSignal, &loop, &QEventLoop::quit);
+                loop.exec();
+                selectCount = myContext->NbSelected();
+                if (selectCount == 0) {
+                    Msg::ShowWarning("No edge selected.");
+                    return;
+                }
+            }
+
+            collectEdgesFromSelection(myContext, edge_vec);
+            if (edge_vec.empty()) {
+                Msg::ShowWarning("No valid edge found.");
+                return;
+            }
+        }
+
+        highlightEdgesInContext(edge_vec);
+
+        bool ok = false;
+        const int numPoints = QInputDialog::getInt(this, "Input discrete point count", "count", 100, 2, 10000, 10, &ok);
+        if (!ok) {
+            return;
+        }
+
+        if (edge_vec.size() == 1) {
+            try {
+                // 单条边没有独立任务可并行拆分，直接采样开销更小。
+                std::vector<std::vector<double>> edgePointGroup = sampleEdgeDiscretePoints(edge_vec.front(), numPoints);
+                if (!edgePointGroup.empty()) {
+                    AngleDialog::groupedPointsAndVec.push_back(edgePointGroup);
+                }
+            }
+            catch (Standard_Failure& e) {
+                Msg::ShowError("Discrete operation failed.");
+                Msg::ShowError(e.GetMessageString());
+                return;
+            }
+        }
+        else {
+            try {
+                std::vector<TopoDS_Wire> wires = OCCT_GraphOperations::ConnectDisorderEdgesToWires(edge_vec);
+                if (wires.empty()) {
+                    Msg::ShowInfo("wire connection failed.");
+                    return;
+                }
+
+                Standard_Character Buffer[1024] = { 0 };
+                Sprintf(Buffer, "wire connection success. wire count = %i", static_cast<int>(wires.size()));
+                Msg::ShowInfo(Buffer);
+
+                std::vector<QFuture<DiscreteWireResult>> futures;
+                futures.reserve(wires.size());
+                for (int wireIndex = 0; wireIndex < static_cast<int>(wires.size()); ++wireIndex) {
+                    // 每条连接后的 wire 放入 Qt 线程池并行采样，每个任务只返回自己的结果缓存。
+                    TopoDS_Wire wire = wires[wireIndex];
+                    futures.push_back(QtConcurrent::run([wire, numPoints, wireIndex]() mutable {
+                        return sampleWireDiscretePoints(wire, numPoints, wireIndex);
+                    }));
+                }
+
+                std::vector<DiscreteWireResult> results;
+                results.reserve(futures.size());
+                for (QFuture<DiscreteWireResult>& future : futures) {
+                    // 所有任务都提交以后，再在 UI 线程等待结果。
+                    future.waitForFinished();
+                    results.push_back(future.result());
+                }
+
+                // 并行任务完成顺序不固定，所以这里按原始 wire 序号重新排序。
+                std::sort(results.begin(), results.end(),
+                    [](const DiscreteWireResult& lhs, const DiscreteWireResult& rhs) {
+                        return lhs.wireIndex < rhs.wireIndex;
+                    });
+
+                for (const DiscreteWireResult& result : results) {
+                    if (!result.errorMessage.isEmpty()) {
+                        Msg::ShowError("Discrete operation failed.");
+                        Msg::ShowError(result.errorMessage.toLocal8Bit().constData());
+                        return;
+                    }
+                    if (!result.pointGroup.empty()) {
+                        AngleDialog::groupedPointsAndVec.push_back(result.pointGroup);
+                    }
+                }
+
+                Sprintf(Buffer, "并行采样完成，线程数 = %i", QThread::idealThreadCount());
+                Msg::ShowInfo(Buffer);
+            }
+            catch (Standard_Failure& e) {
+                Msg::ShowError("Discrete operation failed.");
+                Msg::ShowError(e.GetMessageString());
+                return;
+            }
+        }
+
+        const int filteredGroupCount = filterSecondaryCuttingEdgeGroups(AngleDialog::groupedPointsAndVec);
+        if (filteredGroupCount > 0) {
+            Standard_Character filterBuffer[1024] = { 0 };
+            Sprintf(filterBuffer, "filtered secondary cutting edge groups: %i", filteredGroupCount);
+            Msg::ShowInfo(filterBuffer);
+        }
+
+        for (const auto& edgeGroup : AngleDialog::groupedPointsAndVec) {
+            // 共享的应用数据只在所有工作线程结束后统一写入。
+            appendDiscreteGroupToFlatData(edgeGroup, p_TreeWidget->pointsVec, AngleDialog::pointsAndVec);
+        }
+
+        if (AngleDialog::groupedPointsAndVec.empty()) {
+            Msg::ShowWarning("No discrete point generated.");
+            return;
+        }
+
+        const int reverse = QInputDialog::getInt(this, "Reverse point order", "0: no, 1: yes", 0, 0, 1, 1, &ok);
+        if (ok && reverse) {
+            std::reverse(p_TreeWidget->pointsVec.begin(), p_TreeWidget->pointsVec.end());
+            for (auto& edgeGroup : AngleDialog::groupedPointsAndVec) {
+                std::reverse(edgeGroup.begin(), edgeGroup.end());
+            }
+            rebuildFlatPointDataFromGroups(AngleDialog::groupedPointsAndVec, AngleDialog::pointsAndVec);
+        }
+
+        TopoDS_Compound pointCompound = buildDiscretePointCompound(AngleDialog::groupedPointsAndVec);
+        // 用一次视图显示替代原来的逐点 Display，去掉大部分 UI 刷新开销。
+        h_MyViewer->Display(pointCompound);
+
+        Standard_Character Buffer[1024] = { 0 };
+        Sprintf(Buffer, "edge discrete finished. edge count = %i, group count = %i, point count = %i",
+            static_cast<int>(edge_vec.size()),
+            static_cast<int>(AngleDialog::groupedPointsAndVec.size()),
+            static_cast<int>(p_TreeWidget->pointsVec.size()));
+        Msg::ShowInfo(Buffer);
+    }
+}
+
+#if 0
     p_TreeWidget->pointsVec.clear();
     AngleDialog::pointsAndVec.clear();
     AngleDialog::groupedPointsAndVec.clear();
@@ -1726,7 +2346,7 @@ void MdiChild::EdgeConnectDiscrete()
     }
 
 }
-
+#endif
 
 void MdiChild::clearDiscretePoints()
 {
@@ -2215,6 +2835,12 @@ void MdiChild::ComputeConditions()
     if (sourceGroups.empty() && !AngleDialog::pointsAndVec.empty()) {
         sourceGroups.push_back(AngleDialog::pointsAndVec);
     }
+    const int filteredGroupCount = filterSecondaryCuttingEdgeGroups(sourceGroups);
+    if (filteredGroupCount > 0) {
+        Standard_Character filterBuffer[1024] = { 0 };
+        Sprintf(filterBuffer, "filtered secondary cutting edge groups before export: %i", filteredGroupCount);
+        Msg::ShowInfo(filterBuffer);
+    }
     if (sourceGroups.empty()) {
         Msg::ShowWarning("没有可计算的切削刃离散点，请先进行离散。");
         return;
@@ -2230,190 +2856,94 @@ void MdiChild::ComputeConditions()
         exportDir.mkpath(".");
     }
 
+    CuttingConditionContext conditionContext;
+    conditionContext.rakeFaces = AngleDialog::rakeFaces;
+    conditionContext.clearanceFaces = AngleDialog::clearanceFaces;
+    conditionContext.cuttingVec = AngleDialog::m_cuttingVec;
+    conditionContext.cuttingDep = AngleDialog::m_cuttingDep;
+    conditionContext.cuttingDepDir1 = AngleDialog::m_cuttingDepDir1;
+    conditionContext.cuttingDepDir2 = AngleDialog::m_cuttingDepDir2;
+
+    std::vector<QFuture<CuttingConditionGroupResult>> computeFutures;
+    computeFutures.reserve(sourceGroups.size());
+    for (int groupIndex = 0; groupIndex < static_cast<int>(sourceGroups.size()); ++groupIndex) {
+        const std::vector<std::vector<double>> sourceGroup = sourceGroups[groupIndex];
+        computeFutures.push_back(QtConcurrent::run([sourceGroup, groupIndex, conditionContext]() {
+            return computeCuttingConditionGroup(sourceGroup, groupIndex, conditionContext);
+        }));
+    }
+
+    std::vector<CuttingConditionGroupResult> results;
+    results.reserve(computeFutures.size());
+    for (QFuture<CuttingConditionGroupResult>& future : computeFutures) {
+        future.waitForFinished();
+        results.push_back(future.result());
+    }
+    std::sort(results.begin(), results.end(),
+        [](const CuttingConditionGroupResult& lhs, const CuttingConditionGroupResult& rhs) {
+            return lhs.groupIndex < rhs.groupIndex;
+        });
+
     p_TreeWidget->anglesVec.clear();
     AngleDialog::pointsAndVec.clear();
     AngleDialog::groupedPointsAndVec.clear();
+
     int exportedFileIndex = 1;
+    int skippedPointCount = 0;
+    int rakeFallbackCount = 0;
+    int clearanceFallbackCount = 0;
+    std::vector<QFuture<QString>> exportFutures;
 
-    // 创建面分类器
-    BRepClass_FaceClassifier classifier1;
-    BRepClass_FaceClassifier classifier2;
+    for (const CuttingConditionGroupResult& result : results) {
+        skippedPointCount += result.skippedPointCount;
+        rakeFallbackCount += result.rakeProjectionFallbackCount;
+        clearanceFallbackCount += result.clearanceProjectionFallbackCount;
 
-    for (const auto& sourceGroup : sourceGroups) {
-        std::vector<std::vector<double>> computedGroup;
-        std::vector<std::array<double, 12>> pointsVec;
-        computedGroup.reserve(sourceGroup.size());
-        pointsVec.reserve(sourceGroup.size());
-
-        for (const auto& sourcePoint : sourceGroup) {
-            std::vector<double> pointData = sourcePoint;
-            trimPointComputedFields(pointData);
-
-            bool hasRakeFace = false;
-            bool hasClearanceFace = false;
-            gp_Pnt pnt(pointData[0], pointData[1], pointData[2]);
-            gp_Dir rakefacenormal;
-            vector<TopoDS_Face> m_rakeFaces, m_clearanceFaces;
-            TopoDS_Face m_rakeFace, m_clearanceFace;
-            int rakefaceID = -1;
-            for (const TopoDS_Face& rakeFace : AngleDialog::rakeFaces) {
-                rakefaceID++;
-                classifier1.Perform(rakeFace, pnt, 1e-3);
-                if (classifier1.State() == TopAbs_IN || classifier1.State() == TopAbs_ON)
-                {
-                    m_rakeFace = rakeFace;
-                    Handle(Geom_Surface) surface = BRep_Tool::Surface(rakeFace);
-                    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
-                    if (!plane.IsNull()) {
-                        rakefacenormal = plane->Axis().Direction();
-                    }
-                    m_rakeFaces.push_back(m_rakeFace);
-                    break;
-                }
+        for (const QString& errorMessage : result.errorMessages) {
+            if (!errorMessage.isEmpty()) {
+                Msg::ShowError(errorMessage.toLocal8Bit().constData());
             }
-
-            if (m_rakeFaces.empty()) {
-                if (findNearestFaceByPointProjection(AngleDialog::rakeFaces, pnt, 0.5, m_rakeFace)) {
-                    Handle(Geom_Surface) surface = BRep_Tool::Surface(m_rakeFace);
-                    Handle(Geom_Plane) plane = Handle(Geom_Plane)::DownCast(surface);
-                    if (!plane.IsNull()) {
-                        rakefacenormal = plane->Axis().Direction();
-                    }
-                    m_rakeFaces.push_back(m_rakeFace);
-                    Msg::ShowInfo("点未落在前刀面上，已使用最近前刀面进行计算。");
-                }
-                else {
-                    Msg::ShowError("该点前刀面获取失败，请重新选择面");
-                    continue;
-                }
-            }
-            for (const TopoDS_Face& clearanceFace : AngleDialog::clearanceFaces) {
-                classifier2.Perform(clearanceFace, pnt, 1e-3);
-                if (classifier2.State() == TopAbs_IN || classifier2.State() == TopAbs_ON)
-                {
-                    m_clearanceFace = clearanceFace;
-                    m_clearanceFaces.push_back(m_clearanceFace);
-                }
-            }
-            if (m_clearanceFaces.empty()) {
-                if (findNearestFaceByPointProjection(AngleDialog::clearanceFaces, pnt, 0.5, m_clearanceFace)) {
-                    m_clearanceFaces.push_back(m_clearanceFace);
-                    Msg::ShowInfo("点未落在后刀面上，已使用最近后刀面进行计算。");
-                }
-                else {
-                    Msg::ShowError("该点后刀面获取失败，请重新选择面");
-                    continue;
-                }
-            }
-
-            gp_Vec normalVec(pointData[3], pointData[4], pointData[5]);
-            gp_Dir edgeTangentDir(normalVec);
-            gp_Pln normalPlane(pnt, edgeTangentDir);
-
-            TopoDS_Edge intersectionRakeEdge;
-            for (int j = 0; j < m_rakeFaces.size(); j++)
-            {
-                m_rakeFace = m_rakeFaces[j];
-                hasRakeFace = buildNormalPlaneSectionEdge(normalPlane, m_rakeFace, intersectionRakeEdge);
-                if (hasRakeFace) break;
-            }
-            if (!hasRakeFace) {
-                Msg::ShowError("法平面与前刀面求交失败，请重新选择面");
-                continue;
-            }
-
-            gp_Vec crossA = AngleDialog::m_cuttingVec.Crossed(edgeTangentDir);
-            double rakeAngle = -180.0;
-            if (hasRakeFace) {
-                rakeAngle = OCCT_GraphOperations::ComputeMinAngle(crossA, intersectionRakeEdge, 1e-3);
-                rakeAngle = rakeAngle / M_PI * 180;
-            }
-            Standard_Character Buffer[1024] = { 0 };
-            Sprintf(Buffer, "刀具前角：%f", rakeAngle);
-            Msg::ShowInfo(Buffer);
-
-            TopoDS_Edge intersectionClearanceEdge;
-            for (int j = 0; j < m_clearanceFaces.size(); j++)
-            {
-                m_clearanceFace = m_clearanceFaces[j];
-                hasClearanceFace = buildNormalPlaneSectionEdge(normalPlane, m_clearanceFace, intersectionClearanceEdge);
-                if (hasClearanceFace) break;
-            }
-
-            gp_Vec crossB = AngleDialog::m_cuttingVec.Crossed(crossA);
-            double inclination_angle = acos(crossB.Dot(edgeTangentDir) / crossB.Magnitude()) / M_PI * 180;
-            if (inclination_angle > 90) inclination_angle = 180 - inclination_angle;
-            double clearanceAngle = -180.0;
-            if (hasClearanceFace) {
-                clearanceAngle = OCCT_GraphOperations::ComputeMinAngle(crossA, intersectionClearanceEdge, 1e-3);
-                clearanceAngle = 90 - clearanceAngle / M_PI * 180;
-            }
-            Sprintf(Buffer, "刀具后角：%f", clearanceAngle);
-            Msg::ShowInfo(Buffer);
-
-            pointData.push_back(inclination_angle);
-            pointData.push_back(rakeAngle);
-            pointData.push_back(clearanceAngle);
-
-            gp_Vec depth_dir = AngleDialog::m_cuttingVec.Crossed(edgeTangentDir);
-            double depth = 0.0;
-
-            if (AngleDialog::m_cuttingDepDir2.X())
-            {
-                if (pnt.X() > 0)
-                    depth = abs(depth_dir.X() * AngleDialog::m_cuttingDep.X() * AngleDialog::m_cuttingDepDir1.X()
-                        + depth_dir.Y() * AngleDialog::m_cuttingDep.Y() * AngleDialog::m_cuttingDepDir1.Y()
-                        + depth_dir.Z() * AngleDialog::m_cuttingDep.Z() * AngleDialog::m_cuttingDepDir1.Z()) / depth_dir.Magnitude();
-                else
-                    depth = abs(-depth_dir.X() * AngleDialog::m_cuttingDep.X() * AngleDialog::m_cuttingDepDir1.X()
-                        + depth_dir.Y() * AngleDialog::m_cuttingDep.Y() * AngleDialog::m_cuttingDepDir1.Y()
-                        + depth_dir.Z() * AngleDialog::m_cuttingDep.Z() * AngleDialog::m_cuttingDepDir1.Z()) / depth_dir.Magnitude();
-            }
-            if (AngleDialog::m_cuttingDepDir2.Y())
-            {
-                if (pnt.Y() > 0)
-                    depth = abs(depth_dir.X() * AngleDialog::m_cuttingDep.X() * AngleDialog::m_cuttingDepDir1.X()
-                        + depth_dir.Y() * AngleDialog::m_cuttingDep.Y() * AngleDialog::m_cuttingDepDir1.Y()
-                        + depth_dir.Z() * AngleDialog::m_cuttingDep.Z() * AngleDialog::m_cuttingDepDir1.Z()) / depth_dir.Magnitude();
-                else
-                    depth = abs(depth_dir.X() * AngleDialog::m_cuttingDep.X() * AngleDialog::m_cuttingDepDir1.X()
-                        - depth_dir.Y() * AngleDialog::m_cuttingDep.Y() * AngleDialog::m_cuttingDepDir1.Y()
-                        + depth_dir.Z() * AngleDialog::m_cuttingDep.Z() * AngleDialog::m_cuttingDepDir1.Z()) / depth_dir.Magnitude();
-            }
-            if (AngleDialog::m_cuttingDepDir2.Z())
-            {
-                if (pnt.Z() > 0)
-                    depth = abs(depth_dir.X() * AngleDialog::m_cuttingDep.X() * AngleDialog::m_cuttingDepDir1.X()
-                        + depth_dir.Y() * AngleDialog::m_cuttingDep.Y() * AngleDialog::m_cuttingDepDir1.Y()
-                        + depth_dir.Z() * AngleDialog::m_cuttingDep.Z() * AngleDialog::m_cuttingDepDir1.Z()) / depth_dir.Magnitude();
-                else
-                    depth = abs(depth_dir.X() * AngleDialog::m_cuttingDep.X() * AngleDialog::m_cuttingDepDir1.X()
-                        + depth_dir.Y() * AngleDialog::m_cuttingDep.Y() * AngleDialog::m_cuttingDepDir1.Y()
-                        - depth_dir.Z() * AngleDialog::m_cuttingDep.Z() * AngleDialog::m_cuttingDepDir1.Z()) / depth_dir.Magnitude();
-            }
-            pointData.push_back(AngleDialog::m_cuttingVec.Magnitude());
-            pointData.push_back(depth);
-            pointData.push_back(rakefaceID);
-            pointData.push_back(rakefacenormal.X());
-            pointData.push_back(rakefacenormal.Y());
-            pointData.push_back(rakefacenormal.Z());
-
-            std::array<double, 12> xyzab = buildConditionPointRow(pointData);
-            p_TreeWidget->anglesVec.push_back(xyzab);
-            pointsVec.push_back(xyzab);
-            computedGroup.push_back(pointData);
         }
 
-        if (!computedGroup.empty()) {
-            AngleDialog::groupedPointsAndVec.push_back(computedGroup);
-            AngleDialog::pointsAndVec.insert(AngleDialog::pointsAndVec.end(), computedGroup.begin(), computedGroup.end());
-            p_TreeWidget->addPointToTree(pointsVec);
-            if (!exportFolder.isEmpty()) {
-                exportCuttingEdgePointsToFile(pointsVec, exportFolder, exportedFileIndex, cuttingEdgeFileBaseName);
-            }
-            ++exportedFileIndex;
+        if (result.computedGroup.empty()) {
+            continue;
+        }
+
+        AngleDialog::groupedPointsAndVec.push_back(result.computedGroup);
+        AngleDialog::pointsAndVec.insert(AngleDialog::pointsAndVec.end(), result.computedGroup.begin(), result.computedGroup.end());
+        p_TreeWidget->anglesVec.insert(p_TreeWidget->anglesVec.end(), result.pointsVec.begin(), result.pointsVec.end());
+        p_TreeWidget->addPointToTree(result.pointsVec);
+
+        if (!exportFolder.isEmpty()) {
+            const int fileIndex = exportedFileIndex;
+            const std::vector<std::array<double, 12>> pointsForExport = result.pointsVec;
+            exportFutures.push_back(QtConcurrent::run([pointsForExport, exportFolder, fileIndex, cuttingEdgeFileBaseName]() {
+                QString errorMessage;
+                if (!writeCuttingEdgePointsToFile(pointsForExport, exportFolder, fileIndex, cuttingEdgeFileBaseName, &errorMessage)) {
+                    return errorMessage;
+                }
+                return QString();
+            }));
+        }
+        ++exportedFileIndex;
+    }
+
+    for (QFuture<QString>& future : exportFutures) {
+        future.waitForFinished();
+        const QString errorMessage = future.result();
+        if (!errorMessage.isEmpty()) {
+            Msg::ShowError(errorMessage.toLocal8Bit().constData());
         }
     }
+
+    Standard_Character parallelBuffer[1024] = { 0 };
+    Sprintf(parallelBuffer, "并行切削工况完成：线程数=%i，刀刃组=%i，跳过点=%i，前刀面最近匹配=%i，后刀面最近匹配=%i",
+        QThread::idealThreadCount(),
+        static_cast<int>(AngleDialog::groupedPointsAndVec.size()),
+        skippedPointCount,
+        rakeFallbackCount,
+        clearanceFallbackCount);
+    Msg::ShowInfo(parallelBuffer);
 
     if (!exportFolder.isEmpty()) {
         exportCuttingEdgeFileList(exportFolder, exportedFileIndex - 1, cuttingEdgeFileBaseName);
@@ -2651,6 +3181,7 @@ void MdiChild::ComputeandOffsetEdge()
     /// </summary>
     double a, b, c, d, dx, dy, dz;
     int exportedFileIndex = 1;
+    std::vector<QFuture<QString>> exportFutures;
     for (int edgeindex = 0; edgeindex < AngleDialog::m_offsetNumber; ++edgeindex)
     {
         vector<array<double, 12>> newpointsAndVec = pointsVec;
@@ -2743,12 +3274,28 @@ void MdiChild::ComputeandOffsetEdge()
         }
         p_TreeWidget->addPointToTree(newpointsAndVec);//将点添加到工程树
         if (!exportFolder.isEmpty()) {
-            exportCuttingEdgePointsToFile(newpointsAndVec, exportFolder, exportedFileIndex, cuttingEdgeFileBaseName);
+            const int fileIndex = exportedFileIndex;
+            const std::vector<std::array<double, 12>> pointsForExport = newpointsAndVec;
+            exportFutures.push_back(QtConcurrent::run([pointsForExport, exportFolder, fileIndex, cuttingEdgeFileBaseName]() {
+                QString errorMessage;
+                if (!writeCuttingEdgePointsToFile(pointsForExport, exportFolder, fileIndex, cuttingEdgeFileBaseName, &errorMessage)) {
+                    return errorMessage;
+                }
+                return QString();
+            }));
         }
         ++exportedFileIndex;
     }
 
     if (!exportFolder.isEmpty()) {
+        for (QFuture<QString>& future : exportFutures) {
+            future.waitForFinished();
+            const QString errorMessage = future.result();
+            if (!errorMessage.isEmpty()) {
+                Msg::ShowError(errorMessage.toLocal8Bit().constData());
+            }
+        }
+
         exportCuttingEdgeFileList(exportFolder, exportedFileIndex - 1, cuttingEdgeFileBaseName);
         Standard_Character Buffer[1024] = { 0 };
         Sprintf(Buffer, "切削刃文件已自动导出到: %s，共 %i 个文件",

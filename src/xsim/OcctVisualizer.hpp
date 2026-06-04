@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <chrono> // For timing
 
-#include "src/cutsim/gldata.hpp"
+#include "src/cutsim/cutsim/gldata.hpp"
 
 // OCCT Includes
 #include <AIS_InteractiveContext.hxx>

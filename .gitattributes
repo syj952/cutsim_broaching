@@ -1,0 +1,11 @@
+* text=auto
+
+*.doc binary
+*.ico binary
+*.png binary
+*.stl binary
+*.STL binary
+*.step binary
+*.STEP binary
+*.stp binary
+*.STP binary

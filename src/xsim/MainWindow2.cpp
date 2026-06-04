@@ -163,13 +163,45 @@ void MainWindow::createActions()
 		QAction *aboutQtAct = helpMenu->addAction(tr("关于Qt"), qApp, &QApplication::aboutQt);
 		aboutQtAct->setStatusTip(tr("Show the Qt library's About box"));
 	}
-	//仿真_syj
+	//仿真_yt
 	{
 		QMenu* CutsimMenu = menuBar() ->addMenu("Cutsim仿真");
 		QAction* CutsimAct = new QAction(tr("Cutsim仿真"), this);
 		CutsimAct->setStatusTip(tr("Cutsim仿真"));
 		connect(CutsimAct, &QAction::triggered, this, [=]() {
 			if (activeMdiChild())activeMdiChild()->RunCutsim();
+			});
+		CutsimMenu->addAction(CutsimAct);
+	}
+	//机床通讯_lc
+	{
+		QMenu* CutsimMenu = menuBar()->addMenu("机床通讯");
+		QAction* CutsimAct = new QAction(tr("机床通讯"), this);
+		CutsimAct->setStatusTip(tr("机床通讯"));
+		connect(CutsimAct, &QAction::triggered, this, [=]() {
+			if (activeMdiChild())activeMdiChild()->RunMchConfig();
+			});
+		CutsimMenu->addAction(CutsimAct);
+	}
+	//刀柄-串口数据接收_lc
+	{
+		QMenu* CutsimMenu = menuBar()->addMenu("串口通讯");
+		QAction* CutsimAct = new QAction(tr("串口通讯"), this);
+		CutsimAct->setStatusTip(tr("串口通讯"));
+		connect(CutsimAct, &QAction::triggered, this, [=]() {
+			if (activeMdiChild())activeMdiChild()->RunSerialPort();
+			});
+		CutsimMenu->addAction(CutsimAct);
+	}
+
+
+	//整合_数据孪生
+	{
+		QMenu* CutsimMenu = menuBar()->addMenu("数字孪生");
+		QAction* CutsimAct = new QAction(tr("数字孪生"), this);
+		CutsimAct->setStatusTip(tr("数字孪生"));
+		connect(CutsimAct, &QAction::triggered, this, [=]() {
+			if (activeMdiChild())activeMdiChild()->RunDigitalTwin();
 			});
 		CutsimMenu->addAction(CutsimAct);
 	}

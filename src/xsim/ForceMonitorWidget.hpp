@@ -14,10 +14,10 @@ class ForceMonitorWidget : public QWidget {
 public:
     explicit ForceMonitorWidget(QWidget* parent = nullptr);
 
-    // ¸üÐÂ½Ó¿Ú£º´«ÈëÎ»ÒÆ displacement ºÍ ÈýÏòÁ¦
+    // ï¿½ï¿½ï¿½Â½Ó¿Ú£ï¿½ï¿½ï¿½ï¿½ï¿½Î»ï¿½ï¿½ displacement ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     void updateData(double displacement, double fx, double fy, double fz);
 
-    // Çå³ýÊý¾Ý£¨ÀýÈç¿ªÊ¼ÐÂÒ»ÂÖÇÐÏ÷Ê±£©
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý£ï¿½ï¿½ï¿½ï¿½ç¿ªÊ¼ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½
     void clearData();
 
 private:
@@ -27,14 +27,14 @@ private:
     QLineSeries* seriesX;
     QLineSeries* seriesY;
     QLineSeries* seriesZ;
-    QValueAxis* axisDisplacement; // ºáÖá£ºÎ»ÒÆ
-    QValueAxis* axisForce;        // ×ÝÖá£ºÁ¦
+    QValueAxis* axisDisplacement; // ï¿½ï¿½ï¿½á£ºÎ»ï¿½ï¿½
+    QValueAxis* axisForce;        // ï¿½ï¿½ï¿½á£ºï¿½ï¿½
 
     double minDis = 0.0;
-    double maxDis = 10.0; // ³õÊ¼·¶Î§ 10mm
+    double maxDis = 10.0; // ï¿½ï¿½Ê¼ï¿½ï¿½Î§ 10mm
     double minForce = 0.0;
-    double maxForce = 100.0; // ³õÊ¼Á¿³Ì
-    bool firstPoint = true;  // ±ê¼ÇÊÇ·ñÎªµÚÒ»¸öµã£¬ÓÃÓÚ³õÊ¼»¯·¶Î§
+    double maxForce = 100.0; // ï¿½ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½
+    bool firstPoint = true;  // ï¿½ï¿½ï¿½ï¿½Ç·ï¿½Îªï¿½ï¿½Ò»ï¿½ï¿½ï¿½ã£¬ï¿½ï¿½ï¿½Ú³ï¿½Ê¼ï¿½ï¿½ï¿½ï¿½Î§
 };
 
 #endif

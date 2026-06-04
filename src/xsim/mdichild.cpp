@@ -18,10 +18,10 @@ MdiChild::MdiChild(QWidget * parent)
 	//Init
 	this->Init();
     
-    m_gmshMessageHandler = std::make_shared<GmshMessageHandler>();// Ê¹ÓÃ make_shared ´´½¨¶ÔÏó
+    m_gmshMessageHandler = std::make_shared<GmshMessageHandler>();// Ê¹ï¿½ï¿½ make_shared ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     
     connect(m_gmshMessageHandler.get(), &GmshMessageHandler::messageReceived,
-        this, &MdiChild::onGmshMessageReceived);// Á¬½ÓÐÅºÅ²Û
+        this, &MdiChild::onGmshMessageReceived);// ï¿½ï¿½ï¿½ï¿½ï¿½ÅºÅ²ï¿½
 
     visulization_item = new int(0);
     visulization_limits[0] = 0;
@@ -105,4 +105,17 @@ void MdiChild::setCurrentFile(const QString &fileName)
 QString MdiChild::strippedName(const QString &fullFileName)
 {
     return QFileInfo(fullFileName).fileName();
+}
+
+void MdiChild::onStraightnessDataUpdated(int blade_id, int point_index,
+    double stroke_data,
+    double straightness_data)
+{
+    qDebug() << "MdiChild::onStraightnessDataUpdated called";
+    qDebug() << "Blade:" << blade_id << "Point:" << point_index;
+    qDebug() << "Data values - Stroke:" << stroke_data << "Straightness:" << straightness_data;  // ä¿®æ”¹è¿™é‡Œ
+    // è½¬å‘æ•°æ®åˆ°ç›´çº¿åº¦çª—å£
+    if (straightnessWidget) {
+        straightnessWidget->setData(blade_id, point_index, stroke_data, straightness_data);
+    }
 }

@@ -7,7 +7,7 @@ ForceMonitorWidget::ForceMonitorWidget(QWidget* parent) : QWidget(parent) {
 
 void ForceMonitorWidget::setupUI() {
     chart = new QChart();
-    //chart->setTitle("ÇÐÏ÷Á¦ - Î»ÒÆÌØÐÔÇúÏß");
+    //chart->setTitle("ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ - Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½");
     chart->legend()->setAlignment(Qt::AlignTop);
 
     seriesX = new QLineSeries(this); seriesX->setName("Fx");
@@ -18,16 +18,16 @@ void ForceMonitorWidget::setupUI() {
     chart->addSeries(seriesY);
     chart->addSeries(seriesZ);
 
-    // ÅäÖÃÎ»ÒÆºáÖá
+    // ï¿½ï¿½ï¿½ï¿½Î»ï¿½Æºï¿½ï¿½ï¿½
     axisDisplacement = new QValueAxis();
     axisDisplacement->setTitleText("Stroke (mm)");
     axisDisplacement->setRange(minDis, maxDis);
     axisDisplacement->setLabelFormat("%.2f");
 
-    // ÅäÖÃÁ¦×ÝÖá
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     axisForce = new QValueAxis();
     axisForce->setTitleText("Force (N)");
-    axisForce->setRange(-50, 500); // ¸ù¾ÝÊµ¼Ê¹¤¿öÔ¤Éè
+    axisForce->setRange(-50, 500); // ï¿½ï¿½ï¿½ï¿½Êµï¿½Ê¹ï¿½ï¿½ï¿½Ô¤ï¿½ï¿½
 
     chart->addAxis(axisDisplacement, Qt::AlignBottom);
     chart->addAxis(axisForce, Qt::AlignLeft);
@@ -37,7 +37,7 @@ void ForceMonitorWidget::setupUI() {
     seriesZ->attachAxis(axisDisplacement); seriesZ->attachAxis(axisForce);
 
     QChartView* chartView = new QChartView(chart);
-    chartView->setRenderHint(QPainter::Antialiasing); // ¿¹¾â³Ý
+    chartView->setRenderHint(QPainter::Antialiasing); // ï¿½ï¿½ï¿½ï¿½ï¿½
 
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -45,18 +45,18 @@ void ForceMonitorWidget::setupUI() {
 }
 
 void ForceMonitorWidget::updateData(double displacement, double fx, double fy, double fz) {
-    // Ìí¼ÓÊý¾Ýµã
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ýµï¿½
     seriesX->append(displacement, fx);
     seriesY->append(displacement, fy);
     seriesZ->append(displacement, fz);
 
-    // ¶¯Ì¬µ÷Õû X Öá·¶Î§
+    // ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½ X ï¿½á·¶Î§
     if (displacement > maxDis) {
-        maxDis = displacement * 1.2; // Áô³ö 20% µÄÓàÁ¿
+        maxDis = displacement * 1.2; // ï¿½ï¿½ï¿½ 20% ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         axisDisplacement->setRange(minDis, maxDis);
     }
 
-    // 3. ´¦Àí×Ý×ø±êÁ¦Öµ×ÔÊÊÓ¦
+    // 3. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½Ó¦
     double currentMin = std::min({ fx, fy, fz });
     double currentMax = std::max({ fx, fy, fz });
 
@@ -69,9 +69,9 @@ void ForceMonitorWidget::updateData(double displacement, double fx, double fy, d
         if (currentMin < minForce) minForce = currentMin;
         if (currentMax > maxForce) maxForce = currentMax;
     }
-    // Îª×ø±êÖáÉèÖÃ 15% µÄ±ß¾à£¬±ÜÃâÇúÏßÌù±ß
+    // Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 15% ï¿½Ä±ß¾à£¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     double padding = (maxForce - minForce) * 0.15;
-    // Èç¹ûÈý¸öÁ¦¶¼ºÜÐ¡ÇÒ½Ó½ü£¨ÀýÈç¶¼ÊÇ0£©£¬¸øÒ»¸öÄ¬ÈÏ×îÐ¡Á¿³Ì
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡ï¿½Ò½Ó½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ç¶¼ï¿½ï¿½0ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½Ä¬ï¿½ï¿½ï¿½ï¿½Ð¡ï¿½ï¿½ï¿½ï¿½
     if (padding < 1.0) padding = 10.0;
 
     axisForce->setRange(minForce - padding, maxForce + padding);

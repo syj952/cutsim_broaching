@@ -1,0 +1,36 @@
+# Build outputs and IDE state
+.vs/
+x64/
+Release/
+Debug/
+XCutsim-Broach/
+work_runtime_backup_*/
+Intel*VTune*Profiler*Results/
+
+# Large third-party/runtime dependencies and generated data
+3rdparty/
+mfem/
+packages/
+data/
+cad/
+UCP800DURO/
+
+# Generated Qt/MSVC artifacts
+*.obj
+*.pch
+*.pdb
+*.idb
+*.ilk
+*.lastbuildstate
+*.tlog
+*.log
+*.000000
+*.user
+*.suo
+
+# Local runtime logs and temporary files
+build_*.log
+work_build_*.log
+vc*.pdb
+mesh.*
+mode_*.*

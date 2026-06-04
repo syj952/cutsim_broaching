@@ -1,0 +1,74 @@
+请根据当前代码，为 MfemMeshWriter 类生成一份中文说明文档。
+
+文档目标：
+这份文档面向正在维护 XCutsim / Octree / MFEM 网格导出代码的 C++ 开发者。不要只做代码逐行翻译，要先解释这个类为什么存在、它从 Octree 中接管了哪些职责、它在整个“网格导出 -> 模态计算”流程中的位置。
+
+请重点阅读这些文件：
+- src/cutsim/cutsim/mfem_mesh_writer.hpp
+- src/cutsim/cutsim/mfem_mesh_writer.cpp
+- src/cutsim/cutsim/octree.hpp
+- src/cutsim/cutsim/mfem_analysis1.cpp
+
+请按以下结构输出：
+
+1. 类的整体作用
+   - MfemMeshWriter 这个类负责什么
+   - 它和 Octree 的职责边界是什么
+   - 为什么把网格导出逻辑从 Octree 中移出来
+   - 它和 MeshIDExport、runEx12p 的关系
+
+2. 整体工作流程和原理
+   按照导出流程讲清楚：
+   - 清理顶点临时状态
+   - 遍历 Octree 叶节点
+   - 顶点去重和编号
+   - 区分普通顶点和悬挂顶点
+   - 计算悬挂顶点的父顶点关系
+   - 提取边界面
+   - 根据约束区域设置 boundary attribute
+   - 写出 MFEM NC mesh 文件
+   - 输出的 mesh 文件如何被后续模态计算使用
+
+3. 核心数据和编号规则
+   请解释：
+   - normalvertices 表示什么
+   - hanging_vertices 表示什么
+   - boundaryFaces 表示什么
+   - GLVertex::id 的正负号含义
+   - 普通顶点 ID 和悬挂顶点 ID 在导出文件中如何映射
+   - vertex_parents 在 MFEM 非一致网格中的作用
+
+4. 每个函数的功能说明
+   请逐个说明以下函数：
+   - MfemMeshWriter::MfemMeshWriter(Octree& octree)
+   - exportMesh
+   - clearVertexStates
+   - clearVertexStates(Octnode*)
+   - get_hangingVertex
+   - get_hanging_vertex_parent
+   - boundary
+   - export_mesh_to_file
+
+   每个函数请按这个格式写：
+   - 功能定位
+   - 输入/输出
+   - 主要步骤
+   - 修改了哪些状态
+   - 和其他函数的调用关系
+   - 需要注意的风险或隐含假设
+
+5. 和 Octree 的依赖关系
+   请说明 MfemMeshWriter 仍然依赖 Octree 的哪些底层能力，例如：
+   - 叶节点遍历
+   - 查找父节点/目标节点
+   - 判断悬挂点
+   - 顶点去重
+   - ID 传递
+   - 悬挂点父顶点位置判断
+要求：
+- 使用中文。
+- 语言要像技术文档，不要像课堂讲义。
+- 不要编造代码中不存在的行为。
+- 如果某些逻辑是根据代码推断出来的，请明确写“从当前实现看”。
+- 不需要给出大段源码，只在必要时引用短代码片段。
+- 文档结构清晰，可以使用标题和列表。

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>MfemMeshWriter 类说明文档</title>
+  <style>
+    body {
+      font-family: "Microsoft YaHei", "SimSun", sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.65;
+      color: #222;
+      margin: 36pt 48pt;
+    }
+    h1 {
+      font-size: 20pt;
+      margin: 0 0 18pt 0;
+      text-align: center;
+    }
+    h2 {
+      font-size: 15pt;
+      margin: 22pt 0 8pt 0;
+      border-bottom: 1px solid #999;
+      padding-bottom: 3pt;
+    }
+    h3 {
+      font-size: 12.5pt;
+      margin: 16pt 0 6pt 0;
+    }
+    p {
+      margin: 0 0 7pt 0;
+    }
+    ul {
+      margin-top: 0;
+      margin-bottom: 8pt;
+    }
+    li {
+      margin-bottom: 3pt;
+    }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      background: #f2f2f2;
+      padding: 1pt 3pt;
+    }
+    pre {
+      font-family: Consolas, "Courier New", monospace;
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      padding: 8pt;
+      white-space: pre-wrap;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8pt 0 14pt 0;
+    }
+    th, td {
+      border: 1px solid #aaa;
+      padding: 6pt;
+      vertical-align: top;
+    }
+    th {
+      background: #e8e8e8;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>MfemMeshWriter 类说明文档</h1>
+
+  <p>本文档面向正在维护 XCutsim / Octree / MFEM 网格导出代码的 C++ 开发者。文档基于当前代码中的 <code>src/cutsim/cutsim/mfem_mesh_writer.hpp</code>、<code>src/cutsim/cutsim/mfem_mesh_writer.cpp</code>、<code>src/cutsim/cutsim/octree.hpp</code> 和 <code>src/cutsim/cutsim/mfem_analysis1.cpp</code> 编写，重点说明 <code>MfemMeshWriter</code> 的职责、导出流程、核心数据、编号规则以及它和 <code>Octree</code>、<code>MeshIDExport</code>、<code>runEx12p</code> 的关系。</p>
+
+  <h2>1. 类的整体作用</h2>
+
+  <p><code>MfemMeshWriter</code> 是当前代码中负责“从 <code>Octree</code> 导出 MFEM 非一致网格文件”的类。它集中组织了原本放在 <code>Octree</code> 中的网格导出相关流程，包括清理导出状态、遍历叶节点、普通顶点/悬挂顶点分类、顶点编号与去重、悬挂顶点父顶点关系生成、边界面提取、根据约束区域设置边界属性，以及写出 MFEM NC mesh v1.0 文件。</p>
+
+  <p><code>Octree</code> 现在更偏向底层空间树和拓扑查询结构，仍然提供叶节点遍历、目标节点查找、悬挂点判断、顶点去重、ID 传递等基础能力。<code>MfemMeshWriter</code> 则把这些能力组织成“导出 MFEM 网格”的完整流程。</p>
+
+  <p>把网格导出逻辑从 <code>Octree</code> 中移出来的主要原因是职责分离。<code>Octree</code> 本身应该描述空间树、节点、顶点和邻域关系，而不应该直接承担 MFEM 文件格式、边界属性写法、悬挂节点导出格式等有限元导出职责。<code>MfemMeshWriter</code> 的存在使得“几何/拓扑数据结构”和“MFEM 网格导出流程”在类层面上有了明确边界。</p>
+
+  <p>在当前流程中，<code>MeshIDExport</code> 仍然作为旧入口保留。它内部创建 <code>MfemMeshWriter</code> 并调用 <code>exportMesh</code>：</p>
+
+  <pre>MfemMeshWriter writer(*tree);
+writer.exportMesh(meshFile, normalvertices);</pre>
+
+  <p><code>runEx12p</code> 不直接依赖 <code>MfemMeshWriter</code>。它只接收 <code>meshFile</code>，调用 <code>mfem/fem.exe</code> 做模态计算。因此当前整体关系是：</p>
+
+  <pre>Octree -> MfemMeshWriter / MeshIDExport -> .mesh 文件 -> runEx12p -> 模态结果</pre>
+
+  <h2>2. 整体工作流程和原理</h2>
+
+  <p><code>MfemMeshWriter::exportMesh</code> 是对外主入口。当前实现的导出顺序是：</p>
+
+  <pre>clearVertexStates
+get_hangingVertex
+get_hanging_vertex_parent
+boundary
+export_mesh_to_file</pre>
+
+  <h3>2.1 清理顶点临时状态</h3>
+
+  <p>导出开始时调用 <code>clearVertexStates</code>，递归遍历整棵树，把每个节点的 8 个顶点状态重置为导出前状态。当前实现会把 <code>GLVertex::id</code> 重置为 <code>-9999999</code>，清空 <code>parentVertices</code>，并把 <code>Octnode::vertexnotsaved[n]</code> 重置为 <code>1</code>。</p>
+
+  <p>这一步的作用是避免上一次网格导出留下的编号、父顶点关系或遍历状态影响本次导出。</p>
+
+  <h3>2.2 遍历 Octree 叶节点</h3>
+
+  <p><code>get_hangingVertex</code> 通过 <code>get_leaf_nodes2(root, leaf_node_list)</code> 获取所有叶节点，然后逐节点、逐顶点处理。每个节点有 8 个顶点，每个顶点是否需要编号、是否属于悬挂顶点，都依赖节点深度、节点索引、顶点索引和邻域结构。</p>
+
+  <h3>2.3 顶点去重和编号</h3>
+
+  <p>当前实现把普通顶点和悬挂顶点放入两个编号空间：</p>
+
+  <ul>
+    <li>普通顶点使用 <code>normalVertexId</code>，从 <code>0</code> 开始递减，例如 <code>0, -1, -2...</code>。</li>
+    <li>悬挂顶点使用 <code>hangingVertexId</code>，从 <code>1</code> 开始递增，例如 <code>1, 2, 3...</code>。</li>
+  </ul>
+
+  <p>每次给顶点赋 ID 后，会调用 <code>remove_duplicate_vertex</code> 和 <code>transfer_vertex_id_upward</code>。前者负责同一几何顶点的去重和 ID 复制，后者负责把当前 ID 向父层或相关节点传递。从当前实现看，导出编号是直接写回 <code>GLVertex::id</code> 的。</p>
+
+  <h3>2.4 区分普通顶点和悬挂顶点</h3>
+
+  <p>悬挂顶点通过 <code>check_hanging_vertex</code> 判断。若某个顶点处于非一致网格细分关系中，且需要通过父顶点约束表达，则会进入 <code>hanging_vertices</code>。否则进入 <code>normalvertices</code>。</p>
+
+  <p>普通顶点最终会写入 <code>coordinates</code> 段；悬挂顶点不会作为独立坐标写入，而是写入 <code>vertex_parents</code> 段。</p>
+
+  <h3>2.5 计算悬挂顶点的父顶点关系</h3>
+
+  <p><code>get_hanging_vertex_parent</code> 再次遍历叶节点，为悬挂顶点填充 <code>GLVertex::parentVertices</code>。从当前实现看，父顶点来源主要有两类：</p>
+
+  <ul>
+    <li>直接从父层节点 <code>deep - 1, idxx / 2, idxy / 2, idxz / 2</code> 的固定顶点索引取得。</li>
+    <li>通过 <code>find_hanging_vertex_parent_node</code> 找到悬挂点所在父节点，再通过 <code>determine_hanging_vertex_position</code> 判断它对应的两个父顶点。</li>
+  </ul>
+
+  <p>后续写 <code>vertex_parents</code> 时，当前实现假设每个悬挂顶点都有两个父顶点 ID。</p>
+
+  <h3>2.6 提取边界面</h3>
+
+  <p><code>boundary</code> 遍历所有叶节点，并对每个节点的 6 个方向检查相邻区域。如果相邻位置对应的目标节点是叶节点并且 <code>is_outside()</code>，则当前节点对应的面被认为是外边界面。</p>
+
+  <p>边界面会以 4 个顶点导出 ID 的形式加入 <code>boundaryFaces</code>。这里还不会设置 boundary attribute，只负责生成边界面顶点列表。</p>
+
+  <h3>2.7 根据约束区域设置 boundary attribute</h3>
+
+  <p>边界属性是在 <code>export_mesh_to_file</code> 写文件阶段计算的。当前实现会先遍历叶节点，找到节点中心落在 <code>xyzconstraints</code> 范围内的候选节点，并建立“顶点 ID -> 节点”的映射。</p>
+
+  <p>写每个边界面时，会检查这个边界面的 4 个顶点是否都属于某个候选节点。如果属于，则输出边界属性 <code>1</code>；否则输出边界属性 <code>2</code>。当前写法类似：</p>
+
+  <pre>1 3 v0 v1 v2 v3
+2 3 v0 v1 v2 v3</pre>
+
+  <p>其中第一个数字是 boundary attribute，第二个数字 <code>3</code> 是当前实现固定写出的边界几何类型参数。</p>
+
+  <h3>2.8 写出 MFEM NC mesh 文件</h3>
+
+  <p><code>export_mesh_to_file</code> 按 MFEM NC mesh v1.0 格式写出文件，主要段落包括：</p>
+
+  <ul>
+    <li><code>MFEM NC mesh v1.0</code></li>
+    <li><code>dimension</code></li>
+    <li><code>elements</code></li>
+    <li><code>boundary</code></li>
+    <li><code>vertex_parents</code></li>
+    <li><code>coordinates</code></li>
+    <li><code>mfem_mesh_end</code></li>
+  </ul>
+
+  <p>导出的 <code>.mesh</code> 文件随后由 <code>runEx12p</code> 作为 <code>-m</code> 参数传给 <code>mfem/fem.exe</code>，用于后续模态计算。</p>
+
+  <h2>3. 核心数据和编号规则</h2>
+
+  <h3>3.1 normalvertices</h3>
+
+  <p><code>normalvertices</code> 表示普通顶点列表。它保存最终会写入 <code>coordinates</code> 段的顶点，坐标数量等于 <code>normalvertices.size()</code>。调用方目前主要使用这个列表的大小作为节点数相关信息。</p>
+
+  <h3>3.2 hanging_vertices</h3>
+
+  <p><code>hanging_vertices</code> 表示悬挂顶点列表。悬挂顶点不直接写入 <code>coordinates</code>，而是在 <code>vertex_parents</code> 段中通过两个父顶点定义其约束关系。这是 MFEM 非一致网格中表达悬挂节点的一种方式。</p>
+
+  <h3>3.3 boundaryFaces</h3>
+
+  <p><code>boundaryFaces</code> 表示边界面列表。每个边界面是一个包含 4 个顶点导出 ID 的 <code>std::vector&lt;int&gt;</code>。它只记录面上的顶点编号，不直接保存边界属性；边界属性在 <code>export_mesh_to_file</code> 写 <code>boundary</code> 段时根据 <code>xyzconstraints</code> 计算。</p>
+
+  <h3>3.4 GLVertex::id 的正负号含义</h3>
+
+  <p><code>GLVertex::id</code> 的正负号在当前导出实现中有特殊含义：</p>
+
+  <table>
+    <tr>
+      <th>GLVertex::id</th>
+      <th>含义</th>
+      <th>导出编号规则</th>
+    </tr>
+    <tr>
+      <td><code>id &lt;= 0</code></td>
+      <td>普通顶点</td>
+      <td><code>-id</code></td>
+    </tr>
+    <tr>
+      <td><code>id &gt; 0</code></td>
+      <td>悬挂顶点</td>
+      <td><code>id + normalvertices.size() - 1</code></td>
+    </tr>
+    <tr>
+      <td><code>-9999999</code></td>
+      <td>导出前的临时未初始化状态</td>
+      <td>不应出现在最终导出结果中</td>
+    </tr>
+  </table>
+
+  <p>例如普通顶点 <code>id = 0</code> 导出为 <code>0</code>，<code>id = -1</code> 导出为 <code>1</code>；悬挂顶点 <code>id = 1</code> 导出为 <code>normalvertices.size()</code>，<code>id = 2</code> 导出为 <code>normalvertices.size() + 1</code>。</p>
+
+  <h3>3.5 vertex_parents 的作用</h3>
+
+  <p><code>vertex_parents</code> 段用于描述每个悬挂顶点依赖哪两个父顶点。写文件时，悬挂顶点自身 ID 和父顶点 ID 都会按同一套普通顶点/悬挂顶点映射规则转换成 MFEM 文件中的导出编号。</p>
+
+  <h2>4. 每个函数的功能说明</h2>
+
+  <h3>4.1 MfemMeshWriter::MfemMeshWriter(Octree&amp; octree)</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>绑定一个待导出的 <code>Octree</code>。</td></tr>
+    <tr><td>输入/输出</td><td>输入 <code>Octree&amp;</code>，无直接输出。</td></tr>
+    <tr><td>主要步骤</td><td>保存 <code>octree</code> 引用，缓存 <code>root</code>，引用 <code>node_cache</code> 和 <code>xyzconstraints</code>。</td></tr>
+    <tr><td>修改状态</td><td>构造阶段不修改 Octree 状态。</td></tr>
+    <tr><td>调用关系</td><td>由 <code>MeshIDExport</code> 创建，并调用 <code>exportMesh</code>。</td></tr>
+    <tr><td>风险/假设</td><td><code>MfemMeshWriter</code> 持有引用，生命周期不能超过传入的 <code>Octree</code>。</td></tr>
+  </table>
+
+  <h3>4.2 exportMesh</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>完整 MFEM 网格导出入口。</td></tr>
+    <tr><td>输入/输出</td><td>输入 <code>meshFile</code> 和外部传入的 <code>normalvertices</code>；输出 <code>.mesh</code> 文件，并填充 <code>normalvertices</code>。</td></tr>
+    <tr><td>主要步骤</td><td>清理状态、编号顶点、生成悬挂父点、提取边界面、写文件。</td></tr>
+    <tr><td>修改状态</td><td>会修改 <code>GLVertex::id</code>、<code>GLVertex::parentVertices</code>、<code>Octnode::vertexnotsaved</code>。</td></tr>
+    <tr><td>调用关系</td><td>依次调用 <code>clearVertexStates</code>、<code>get_hangingVertex</code>、<code>get_hanging_vertex_parent</code>、<code>boundary</code>、<code>export_mesh_to_file</code>。</td></tr>
+    <tr><td>风险/假设</td><td>这是有副作用的导出流程，不是只读 writer。</td></tr>
+  </table>
+
+  <h3>4.3 clearVertexStates</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>导出前重置整棵树的顶点导出状态。</td></tr>
+    <tr><td>输入/输出</td><td>无显式输入，操作当前 <code>root</code>。</td></tr>
+    <tr><td>主要步骤</td><td>调用递归版本 <code>clearVertexStates(root)</code>。</td></tr>
+    <tr><td>修改状态</td><td>重置所有节点顶点 ID、父顶点列表、遍历标记。</td></tr>
+    <tr><td>调用关系</td><td>由 <code>exportMesh</code> 第一阶段调用。</td></tr>
+    <tr><td>风险/假设</td><td>会清除上一次导出残留的父顶点信息。</td></tr>
+  </table>
+
+  <h3>4.4 clearVertexStates(Octnode*)</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>递归清理指定节点及其子节点。</td></tr>
+    <tr><td>输入/输出</td><td>输入当前节点指针，无返回值。</td></tr>
+    <tr><td>主要步骤</td><td>清理当前节点 8 个顶点，再递归处理 8 个子节点。</td></tr>
+    <tr><td>修改状态</td><td>设置 <code>vertex[n]-&gt;id = -9999999</code>，清空 <code>parentVertices</code>，设置 <code>vertexnotsaved[n] = 1</code>。</td></tr>
+    <tr><td>调用关系</td><td>由无参 <code>clearVertexStates</code> 调用，也会递归调用自身。</td></tr>
+    <tr><td>风险/假设</td><td>假设节点的 <code>vertex</code> 和 <code>child</code> 数组结构有效。</td></tr>
+  </table>
+
+  <h3>4.5 get_hangingVertex</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>顶点分类、编号和去重。</td></tr>
+    <tr><td>输入/输出</td><td>输出 <code>hangingVertexList</code> 和 <code>normalVertexList</code>。</td></tr>
+    <tr><td>主要步骤</td><td>遍历叶节点，对每个顶点判断是否悬挂；普通点进入 <code>normalVertexList</code>，悬挂点进入 <code>hangingVertexList</code>。</td></tr>
+    <tr><td>修改状态</td><td>设置 <code>GLVertex::id</code>，修改 <code>vertexnotsaved</code>，通过去重和 ID 传递同步相关顶点。</td></tr>
+    <tr><td>调用关系</td><td>依赖 <code>check_hanging_vertex</code>、<code>remove_duplicate_vertex</code>、<code>transfer_vertex_id_upward</code>。</td></tr>
+    <tr><td>风险/假设</td><td>当前实现按大量 <code>node-&gt;idx</code> 和顶点索引分支处理，逻辑强依赖 Octree 顶点编号约定。</td></tr>
+  </table>
+
+  <h3>4.6 get_hanging_vertex_parent</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>为悬挂顶点生成父顶点 ID。</td></tr>
+    <tr><td>输入/输出</td><td>无显式输出，结果写入 <code>GLVertex::parentVertices</code>。</td></tr>
+    <tr><td>主要步骤</td><td>遍历叶节点，根据节点位置和顶点索引查找父层顶点，或通过悬挂点位置推断父点。</td></tr>
+    <tr><td>修改状态</td><td>向 <code>parentVertices</code> 追加两个父顶点 ID。</td></tr>
+    <tr><td>调用关系</td><td>依赖 <code>find_target_node</code>、<code>find_hanging_vertex_parent_node</code>、<code>determine_hanging_vertex_position</code>。</td></tr>
+    <tr><td>风险/假设</td><td>写文件阶段默认每个悬挂点有两个父顶点；如果某些分支没有填满，<code>export_mesh_to_file</code> 访问 <code>parentVertices[j]</code> 会有风险。</td></tr>
+  </table>
+
+  <h3>4.7 boundary</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>提取 Octree 外边界面。</td></tr>
+    <tr><td>输入/输出</td><td>输出 <code>boundaryFaces</code> 和 <code>boundarynode</code>。</td></tr>
+    <tr><td>主要步骤</td><td>遍历每个叶节点 6 个方向，查找相邻节点；如果相邻节点是 outside 叶节点，则当前面作为边界面。</td></tr>
+    <tr><td>修改状态</td><td>不直接修改顶点状态，但会读取顶点 ID 并生成导出 ID。</td></tr>
+    <tr><td>调用关系</td><td>依赖 <code>find_parent_nodes</code> 和 <code>find_target_node</code>。</td></tr>
+    <tr><td>风险/假设</td><td>这里不设置 boundary attribute，只生成边界面顶点列表。</td></tr>
+  </table>
+
+  <h3>4.8 export_mesh_to_file</h3>
+
+  <table>
+    <tr><th>项目</th><th>说明</th></tr>
+    <tr><td>功能定位</td><td>把整理好的网格数据写成 MFEM NC mesh 文件。</td></tr>
+    <tr><td>输入/输出</td><td>输入普通顶点、边界面、悬挂顶点和文件路径；输出 <code>.mesh</code> 文件。</td></tr>
+    <tr><td>主要步骤</td><td>写 header、elements、boundary、vertex_parents、coordinates、end。</td></tr>
+    <tr><td>修改状态</td><td>主要是文件输出，不应再改变核心拓扑状态。</td></tr>
+    <tr><td>调用关系</td><td>由 <code>exportMesh</code> 最后调用。</td></tr>
+    <tr><td>风险/假设</td><td>边界属性判断写在这里，依赖 <code>xyzconstraints</code>；同时假设所有单元顶点 ID 都已经完成编号。</td></tr>
+  </table>
+
+  <h2>5. 和 Octree 的依赖关系</h2>
+
+  <p><code>MfemMeshWriter</code> 并没有完全脱离 <code>Octree</code>。它只是把“导出流程”从 <code>Octree</code> 类中移出，底层算法仍依赖 <code>Octree</code> 的公共能力。</p>
+
+  <ul>
+    <li>叶节点遍历：<code>get_leaf_nodes2</code></li>
+    <li>父节点候选查找：<code>find_parent_nodes</code></li>
+    <li>指定节点查找：<code>find_target_node</code></li>
+    <li>悬挂点判断：<code>check_hanging_vertex</code></li>
+    <li>顶点去重：<code>remove_duplicate_vertex</code></li>
+    <li>ID 向上传递：<code>transfer_vertex_id_upward</code></li>
+    <li>悬挂点父节点查找：<code>find_hanging_vertex_parent_node</code></li>
+    <li>悬挂点位置判断：<code>determine_hanging_vertex_position</code></li>
+    <li>缓存：直接引用 <code>octree.node_cache</code></li>
+    <li>约束区域：直接引用 <code>octree.xyzconstraints</code></li>
+  </ul>
+
+  <p>从当前实现看，<code>MfemMeshWriter</code> 是一个“导出流程组织者 + MFEM 文件写出器”，而不是完全独立的网格数据模型。它把导出职责从 <code>Octree</code> 中分离出来，但仍然复用 <code>Octree</code> 内部已有的几何拓扑算法。</p>
+</body>
+</html>

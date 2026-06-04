@@ -1,4 +1,4 @@
-﻿#include "mdichild.h"
+#include "mdichild.h"
 #include "ComplainUtf8.h"
 #include "OcctView.h"
 #include "GUI_Message.h"
@@ -18,6 +18,13 @@ void MdiChild::Init()
 
     // 启用停靠窗口嵌套
     this->setDockNestingEnabled(true);
+
+    QWidget* centralContainer = new QWidget(this);
+    QHBoxLayout* centralLayout = new QHBoxLayout(centralContainer);
+    centralLayout->setContentsMargins(0, 0, 0, 0);
+    centralLayout->setSpacing(2); // 两个视图之间的缝隙
+    centralContainer->setLayout(centralLayout);
+    this->setCentralWidget(centralContainer); // 总容器成为中心
 
     // 3D视图区域 - 主工作区
     {
@@ -75,7 +82,8 @@ void MdiChild::Init()
         pLayout->addWidget(q3dView);
         pLayout->addWidget(pToolbar);
 
-        this->setCentralWidget(p3DWidget);
+        //this->setCentralWidget(p3DWidget);
+        centralLayout->addWidget(p3DWidget);
    
         //QWidget* p3DWidget = new QWidget(this);
         //QHBoxLayout* pLayout = new QHBoxLayout();//水平布局管理器
@@ -97,6 +105,16 @@ void MdiChild::Init()
         //this->setCentralWidget(p3DWidget);
     }
     
+    {
+        VTKWidget* p_VtkWidget = new VTKWidget(this);
+        this->p_VtkWidget = p_VtkWidget;//将局部变量赋值给 Mdichi1d的成员变量
+
+        centralLayout->addWidget(p_VtkWidget);
+        // 设置比例
+        centralLayout->setStretch(0, 1); // 左侧占1份
+        centralLayout->setStretch(1, 1); // 右侧占1份
+    }
+
     //  项目树 - 左侧停靠窗口
     {
         p_TreeDock = new QDockWidget(tr("项目管理器"), this);
@@ -109,7 +127,7 @@ void MdiChild::Init()
             QDockWidget::DockWidgetMovable |
             QDockWidget::DockWidgetFloatable);
         p_TreeDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-        p_TreeDock->setMinimumWidth(200); // 根据图片调整宽度
+        p_TreeDock->setMinimumWidth(250); // 根据图片调整宽度
 
         // 设置停靠窗口样式
         p_TreeDock->setStyleSheet(R"(
@@ -148,7 +166,7 @@ void MdiChild::Init()
             QDockWidget::DockWidgetMovable |
             QDockWidget::DockWidgetFloatable);
         p_PropertyDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-        p_PropertyDock->setMinimumWidth(200);
+        p_PropertyDock->setMinimumHeight(200);
 
         // 设置与项目树相同的样式
         p_PropertyDock->setStyleSheet(p_TreeDock->styleSheet());
@@ -156,6 +174,7 @@ void MdiChild::Init()
         q3dView->setPropertyView(p_PropertyWidget);
 
         // 将属性栏停靠在项目树下方
+        //this->splitDockWidget(p_TreeDock, p_PropertyDock, Qt::Vertical);
         this->splitDockWidget(p_TreeDock, p_PropertyDock, Qt::Vertical);
     }
 
@@ -169,7 +188,7 @@ void MdiChild::Init()
             QDockWidget::DockWidgetMovable |
             QDockWidget::DockWidgetFloatable);
         p_MessageDock->setAllowedAreas(Qt::BottomDockWidgetArea);
-        p_MessageDock->setMinimumHeight(60); // 设置合适的高度
+        p_MessageDock->setMinimumHeight(200);
 
         // 设置状态栏样式
         p_MessageDock->setStyleSheet(R"(
@@ -206,7 +225,7 @@ void MdiChild::Init()
             QDockWidget::DockWidgetMovable |
             QDockWidget::DockWidgetFloatable);
         p_forceVisualDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-        p_forceVisualDock->setMinimumWidth(300); // 根据图片调整宽度
+        p_forceVisualDock->setMinimumWidth(400); // 根据图片调整宽度
 
         // 设置停靠窗口样式
         p_forceVisualDock->setStyleSheet(R"(
@@ -234,19 +253,21 @@ void MdiChild::Init()
     //直线度 - 右侧停靠窗口，位于切削力下方
     {
         p_straightnessVisualDock = new QDockWidget(tr("直线度"), this);
-        //p_PropertyWidget = new PropertyView(p_PropertyDock);
+        straightnessWidget = new StraightnessMonitorWidget(p_straightnessVisualDock);
 
-        //p_straightnessVisualDock->setWidget(p_PropertyWidget);
+        p_straightnessVisualDock->setWidget(straightnessWidget);
         p_straightnessVisualDock->setFeatures(QDockWidget::DockWidgetClosable |
             QDockWidget::DockWidgetMovable |
             QDockWidget::DockWidgetFloatable);
         p_straightnessVisualDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-        p_straightnessVisualDock->setMinimumWidth(200);
+        p_straightnessVisualDock->setMinimumWidth(300);
 
         // 设置与项目树相同的样式
         p_straightnessVisualDock->setStyleSheet(p_forceVisualDock->styleSheet());
 
-        //q3dView->setPropertyView(p_PropertyWidget);
+        // 连接信号槽
+        connect(this, &MdiChild::straightnessDataUpdated,
+            straightnessWidget, &StraightnessMonitorWidget::setData);
 
         // 将属性栏停靠在项目树下方
         this->splitDockWidget(p_forceVisualDock, p_straightnessVisualDock, Qt::Vertical);
@@ -255,19 +276,22 @@ void MdiChild::Init()
     //QDockWidget* p_straightnessVisualDock;//������ͣ����
 
 
-
     // 设置标签页样式（如果使用MDI区域）
     this->setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
     this->setDocumentMode(true);
 
     // 设置初始布局比例
     QList<int> mainSizes;
-    mainSizes << 700 << 300; // 主区域:侧边栏 = 7:3
+    mainSizes << 7 << 3; // 主区域:侧边栏 = 7:3
     this->resizeDocks({ p_TreeDock }, { 280 }, Qt::Horizontal);
 
     QList<int> leftSizes;
-    leftSizes << 200 << 150; // 项目树:属性栏 = 4:3
+    leftSizes << 4 << 3; // 项目树:属性栏 = 4:3
     this->resizeDocks({ p_TreeDock, p_PropertyDock }, leftSizes, Qt::Vertical);
+
+    QList<int> rightSizes;
+    rightSizes << 1 << 1;
+    this->resizeDocks({ p_forceVisualDock, p_straightnessVisualDock }, rightSizes, Qt::Vertical);
 }
 
 // 添加窗口状态保存和恢复功能

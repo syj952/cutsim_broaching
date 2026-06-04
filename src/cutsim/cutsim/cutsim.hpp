@@ -1,0 +1,227 @@
+/*
+ *  Copyright 2010-2011 Anders Wallin (anders.e.e.wallin "at" gmail.com)
+ *  Copyright 2015      Kazuyasu Hamada (k-hamada@gifu-u.ac.jp)
+ *
+ *  This file is part of OpenCAMlib.
+ *
+ *  OpenCAMlib is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  OpenCAMlib is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with OpenCAMlib.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#ifndef CUTSIM_H
+#define CUTSIM_H
+
+#include <QObject>
+#include <QRunnable>
+
+#include <string>
+#include <iostream>
+#include <cmath>
+#include <vector>
+#include <array>
+#include <ctime>
+
+#include <boost/bind.hpp>
+#include <boost/timer.hpp>
+
+#include "octree.hpp"
+#include "octnode.hpp"
+#include "volume.hpp"
+#include "marching_cubes.hpp"
+#include "cube_wireframe.hpp"
+#include "gldata.hpp"
+#include "glwidget.hpp"
+
+#include <src/cutsim/g2m/g2m.hpp>
+#include <src/cutsim/g2m/gplayer.hpp>
+
+#include <chrono>
+
+namespace cutsim {
+
+    /// Task to diff a volume from the tree
+    class DiffTask : public QObject, public QRunnable {
+        Q_OBJECT
+
+    public:
+        /// create task for cutting Volume from Octree which is drawn with GLData
+        DiffTask(Octree* t, GLData* g, milling_AptCutterVolume* v, int l, int ms, double fr) : tree(t), gld(g), vol(v), line(l), mstatus(ms), feedrate(fr) {}
+        /// run the task
+        void run() {
+            CuttingStatus cstatus;
+            qDebug() << "DiffTask thread" << QThread::currentThread();
+            std::chrono::system_clock::time_point start, stop;
+            start = std::chrono::system_clock::now();
+            tree->milling_cuda_blade_diff(vol);
+            //cstatus = tree->diff_c( vol );
+            stop = std::chrono::system_clock::now();
+            qDebug() << "   " << std::chrono::duration<double>(stop - start).count() << "sec.";
+            qDebug() << "DiffTask thread DONE " << QThread::currentThread();
+
+            //qDebug() << "Cutting Count: " << cstatus.cutcount << "cut(s)" << ((mstatus & (g2m::POSITIVE_PLUNGE | g2m::NEGATIVE_PLUNGE)) ? "plunge" : "") << "@ line:" << line;
+
+            //        int error = 0;
+            //        if (cstatus.cutcount)
+            //        	error = (mstatus & (g2m::OFF | g2m::BRAKE | g2m::TRAVERSE));
+
+            emit signalDone(line, mstatus, 0, 0);
+        }
+
+    signals:
+        /// emitted when the task is done
+        void signalDone(int line, int mstatus, int error, double cuttingPower);
+
+    private:
+        Octree* tree;
+        GLData* gld;
+        milling_AptCutterVolume* vol;
+        int line;
+        int mstatus;
+        double feedrate;
+    };
+
+    /// task for updating GLData of an Octree
+    class UpdateGLTask : public QObject, public QRunnable {
+        Q_OBJECT
+
+    public:
+        /// Create task for updating GLData based on given Octree. Use the given IsoSurfaceAlgorithm for the update
+        UpdateGLTask(Octree* t, GLData* g, IsoSurfaceAlgorithm* ia, GLWidget* wid) : tree(t), gld(g), iso_algo(ia), widget(wid) {}
+        /// run the task
+        void run() {
+            qDebug() << "UpdateGLTask thread" << QThread::currentThread();
+            std::chrono::system_clock::time_point start, stop;
+            start = std::chrono::system_clock::now();
+            if (widget->doAnimate()) {
+                iso_algo->updateGL();
+                gld->swap();
+            }
+            stop = std::chrono::system_clock::now();
+            qDebug() << "   " << std::chrono::duration<double>(stop - start).count() << "sec.";
+            emit signalDone();
+        }
+        IsoSurfaceAlgorithm* iso_algo;
+
+    signals:
+        /// emitted when current move done
+        void signalDone();
+
+    private:
+        Octree* tree;
+        GLData* gld;
+
+        GLWidget* widget;
+    };
+
+    /// a Cutsim stores an Octree stock model, uses an iso-surface extraction
+    /// algorithm to generate surface triangles, and communicates with
+    /// the corresponding GLData surface which is used by GLWidget for rendering
+    class Cutsim : public QObject {
+        Q_OBJECT
+
+    public:
+        Octree* tree;
+        ///added hust
+        void loadDeformationData(const std::string& deformedPointsFile, const std::string& displacementsFile);
+        size_t getCweNodeListSize() const {
+            return tree->cwenodelist.size();
+        }
+        const std::vector<Octnode*>& getCweNodeList() const {
+            return tree->cwenodelist;
+        }
+        std::vector<Octnode*> nodes_to_process;
+        std::unordered_map<Octnode*, std::vector<GLVertex>> all_vertexMap; // 存储容器
+        std::unordered_map<Octnode*, std::vector<GLVertex>> step_vertexMap; // 临时存储容器
+        void renderNodesGL();
+        void diff_volume_blade(const Volume* vol);
+        void broaching_diff_volume_blade_cuda(broaching_AptCutterVolume* volume);
+        void milling_diff_volume_blade_cuda(milling_AptCutterVolume* volume);
+        void digitaltwin_milling_diff_volume_blade_cuda(digitaltwin_AptCutterVolume* volume);
+        void sum_volume_cuda(const Volume* vol, double max_depth);
+        void diff_volume_cuda(const Volume* vol, double max_depth);
+        void sum_stl_volume_cuda(const StlVolume* vol, double max_depth);
+        int setConstraints(std::array<std::array<double, 2>, 3> xyzconstraints) {
+            tree->xyzconstraints = xyzconstraints;
+            return 1;
+        };
+        ///added hust
+        /// create a cutting simulation
+        /// \param octree_size side length of the depth=0 octree cube
+        /// \param octree_max_depth maximum sub-division depth of the octree
+        /// \param gld the GLData used to draw this tree
+        Cutsim(double octree_size, unsigned int octree_max_depth, GLVertex* octree_center, GLData* gld, GLWidget* widget);
+        virtual ~Cutsim();
+        /// subtract/diff given Volume
+        void diff_volume(const Volume* vol);
+        /// sum/union given Volume
+        //    void sum_volume( const Volume* vol );
+        void sum_volume(Volume* vol);
+        /// intersect/"and" given Volume
+        void intersect_volume(const Volume* vol);
+        /// update the GL-data
+        void updateGL();
+
+        void treeTransfer(GLVertex parallel, int flip_axis = 0, bool ignore_parts = false);
+        void clearSim(double octree_size, unsigned int octree_max_depth, GLVertex* octree_center);
+
+    signals:
+        /// emitted when diff is done
+        void signalDiffDone(int line, int mstatus, int error, double cuttingPower);
+        /// emitted when GL update is done
+        void signalGLDone();
+
+    public slots:
+        /// call to signal that diff-task is done
+        void slotDiffDone(int line, int mstatus, int error, double cuttingPower) {
+            qDebug() << " Cutsim::slotDiffDone() ";
+            emit signalDiffDone(line, mstatus, error, cuttingPower);
+        }
+        /// call to signal that gl-task is done
+        void slotGLDone() {
+            emit signalGLDone();
+        }
+        /// diff the given Volume from the stock
+        void slot_diff_volume(const Volume* vol) { diff_volume(vol); }
+        /// multithreaded diff (FIXME: broken)
+        void slot_diff_volume_mt(milling_AptCutterVolume* vol, int line, int mstatus, double feedrate) {
+            DiffTask* dt = new DiffTask(tree, g, vol, line, mstatus, feedrate);
+            connect(dt, SIGNAL(signalDone(int, int, int, double)), this, SLOT(slotDiffDone(int, int, int, double)));
+            QThreadPool::globalInstance()->start(dt);
+
+            QThreadPool::globalInstance()->waitForDone();
+        }
+        /// multithreaded GL-update (broken...)
+        void update_gl_mt() {
+            UpdateGLTask* ua = new UpdateGLTask(tree, g, iso_algo, widget);
+            connect(ua, SIGNAL(signalDone()), this, SLOT(slotGLDone()));
+            QThreadPool::globalInstance()->start(ua);
+
+            QThreadPool::globalInstance()->waitForDone();
+        }
+        /// sum given Volume to tree
+        //    void slot_sum_volume( const Volume* vol )  { sum_volume(vol); }
+        /// intersect three with volume
+        //    void slot_int_volume( const Volume* vol )  { intersect_volume(vol); }
+
+    private:
+
+        GLData* g; // this is the graphics object drawn on the screen, representing the stock
+        GLWidget* widget;
+    public:
+        IsoSurfaceAlgorithm* iso_algo; // the isosurface-extraction algorithm to use
+    };
+
+} // end namespace
+
+#endif
+

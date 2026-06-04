@@ -4,6 +4,7 @@
 #include <iostream>
 #include <TopoDS.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopExp.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <TopoDS_Wire.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
@@ -25,13 +26,14 @@
 #include "ComplainUtf8.h"
 #include "OCCT_ShapeList.h"
 #include "BRepTools.hxx"
+#include <BRep_Tool.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <TopTools_HSequenceOfShape.hxx>
 
 //#include "GCPnts_ProjectionOnSurface.hxx"
 using namespace std;
 // 在复合曲线上均匀采样点
-void OCCT_GraphOperations::SampleWireUniformly(std::vector<gp_Pnt>& pointVec, std::vector<gp_Dir>& dirVec, TopoDS_Wire& wire, int numPoints)
+void OCCT_GraphOperations::SampleWireUniformly(std::vector<gp_Pnt>& pointVec,std::vector<gp_Dir>& dirVec, TopoDS_Wire& wire, int numPoints)
 {
     //std::vector<gp_Pnt> points;
     if (numPoints < 2)
@@ -43,30 +45,30 @@ void OCCT_GraphOperations::SampleWireUniformly(std::vector<gp_Pnt>& pointVec, st
     if (!IsWireConsistentlyOriented(wire)) {
         // 如果方向不一致，先修复方向
         wire = FixWireOrientation(wire);
-        Msg::ShowWarning(
-            "The input composite curve direction is inconsistent, and the direction problem is automatically corrected.");
+		Msg::ShowWarning(
+        "The input composite curve direction is inconsistent, and the direction problem is automatically corrected.");
     }
 
     Standard_Real totalLength = ComputeTotalLength(wire);
     Standard_Real step = totalLength / (numPoints - 1); // 计算步长
-    gp_Pnt point;
-    gp_Dir dir;
+	gp_Pnt point;
+	gp_Dir dir;
     Standard_Real currentPosition = 0.0;
-    GetPointAtLength(wire, 0.0, point, dir);
+	GetPointAtLength(wire, 0.0, point, dir);
     pointVec.push_back(point); // 起点
-    dirVec.push_back(dir);
+	dirVec.push_back(dir);
 
     for (int i = 1; i < numPoints - 1; ++i)
     {
         currentPosition += step;
-        GetPointAtLength(wire, currentPosition, point, dir);
+		GetPointAtLength(wire, currentPosition, point, dir);
         pointVec.push_back(point);
-        dirVec.push_back(dir);
+		dirVec.push_back(dir);
     }
 
-    GetPointAtLength(wire, totalLength, point, dir);
+	GetPointAtLength(wire, totalLength, point, dir);
     pointVec.push_back(point); // 终点
-    dirVec.push_back(dir);
+	dirVec.push_back(dir);
 
     return;
 }
@@ -81,7 +83,7 @@ void OCCT_GraphOperations::SampleWireUniformly(std::vector<std::pair<gp_Pnt, gp_
     // 计算总长度并设置均匀采样
     GCPnts_UniformAbscissa sampler;
     sampler.Initialize(compCurve, numPoints, compCurve.FirstParameter(), compCurve.LastParameter());
-
+    
 
     // 获取采样点参数和位置
     for (int i = 1; i <= sampler.NbPoints(); ++i) {
@@ -119,7 +121,7 @@ Standard_Real OCCT_GraphOperations::ComputeTotalLength(const TopoDS_Wire& wire)
 }
 
 // 根据长度在复合曲线上获取点
-void OCCT_GraphOperations::GetPointAtLength(const TopoDS_Wire& wire, Standard_Real length, gp_Pnt& Pnt, gp_Dir& Dir)
+void OCCT_GraphOperations::GetPointAtLength(const TopoDS_Wire& wire, Standard_Real length,gp_Pnt& Pnt,gp_Dir& Dir)
 {
     Standard_Real accumulatedLength = 0.0;
 
@@ -132,11 +134,11 @@ void OCCT_GraphOperations::GetPointAtLength(const TopoDS_Wire& wire, Standard_Re
         {
             // 该点在当前边上
             Standard_Real positionOnEdge = length - accumulatedLength;
-            gp_Pnt pnt;
-            gp_Vec vec;
-            GetPointOnEdge(edge, positionOnEdge, pnt, vec);
-            Pnt = pnt;
-            Dir = gp_Dir(vec);
+			gp_Pnt pnt;
+			gp_Vec vec;
+            GetPointOnEdge(edge, positionOnEdge,pnt,vec);
+			Pnt = pnt;
+			Dir = gp_Dir(vec);
             return;
         }
 
@@ -154,8 +156,8 @@ void OCCT_GraphOperations::GetPointAtLength(const TopoDS_Wire& wire, Standard_Re
     GeomAdaptor_Curve geomAdaptor = curveAdaptor.Curve();
     //gp_Pnt pnt;
     gp_Vec vec;
-    geomAdaptor.D1(geomAdaptor.LastParameter(), Pnt, vec);
-    Dir = gp_Dir(vec);
+	geomAdaptor.D1(geomAdaptor.LastParameter(), Pnt, vec);
+	Dir = gp_Dir(vec);
 }
 
 
@@ -172,7 +174,7 @@ void OCCT_GraphOperations::GetPointOnEdge(const TopoDS_Edge& edge, Standard_Real
     GCPnts_AbscissaPoint abscissa(geomAdaptor, length, firstParam);
     if (abscissa.IsDone())
     {
-        geomAdaptor.D1(abscissa.Parameter(), pnt, vec);
+		geomAdaptor.D1(abscissa.Parameter(), pnt, vec);
         return;
     }
 
@@ -196,6 +198,150 @@ Standard_Real OCCT_GraphOperations::ComputeEdgeLength(const TopoDS_Edge& edge)
 }
 #include <ShapeFix_Wire.hxx>
 #include <BRepTools_WireExplorer.hxx>
+namespace
+{
+    constexpr Standard_Real kDisorderEdgeConnectTolerance = 1.0e-4;
+
+    bool getWireEndPoints(const TopoDS_Wire& wire, gp_Pnt& firstPoint, gp_Pnt& lastPoint)
+    {
+        TopoDS_Vertex firstVertex;
+        TopoDS_Vertex lastVertex;
+        TopExp::Vertices(wire, firstVertex, lastVertex);
+        if (firstVertex.IsNull() || lastVertex.IsNull()) {
+            return false;
+        }
+
+        firstPoint = BRep_Tool::Pnt(firstVertex);
+        lastPoint = BRep_Tool::Pnt(lastVertex);
+        return true;
+    }
+
+    bool wireEndPointsAreClose(const TopoDS_Wire& lhs, const TopoDS_Wire& rhs, Standard_Real tolerance)
+    {
+        gp_Pnt lhsFirst;
+        gp_Pnt lhsLast;
+        gp_Pnt rhsFirst;
+        gp_Pnt rhsLast;
+        if (!getWireEndPoints(lhs, lhsFirst, lhsLast) || !getWireEndPoints(rhs, rhsFirst, rhsLast)) {
+            return false;
+        }
+
+        return lhsFirst.Distance(rhsFirst) <= tolerance ||
+            lhsFirst.Distance(rhsLast) <= tolerance ||
+            lhsLast.Distance(rhsFirst) <= tolerance ||
+            lhsLast.Distance(rhsLast) <= tolerance;
+    }
+
+    void collectWireEdges(const TopoDS_Wire& wire, std::vector<TopoDS_Edge>& edges)
+    {
+        for (TopExp_Explorer explorer(wire, TopAbs_EDGE); explorer.More(); explorer.Next()) {
+            const TopoDS_Edge edge = TopoDS::Edge(explorer.Current());
+            if (!edge.IsNull()) {
+                edges.push_back(edge);
+            }
+        }
+    }
+
+    std::vector<TopoDS_Wire> connectEdgesToWiresLenient(const std::vector<TopoDS_Edge>& edgeList)
+    {
+        std::vector<TopoDS_Wire> result;
+        if (edgeList.empty()) {
+            return result;
+        }
+
+        Handle(TopTools_HSequenceOfShape) edges = new TopTools_HSequenceOfShape();
+        for (const TopoDS_Edge& edge : edgeList) {
+            if (!edge.IsNull()) {
+                edges->Append(edge);
+            }
+        }
+
+        Handle(TopTools_HSequenceOfShape) wires;
+        ShapeAnalysis_FreeBounds::ConnectEdgesToWires(
+            edges,
+            kDisorderEdgeConnectTolerance,
+            Standard_False,
+            wires);
+
+        if (!wires.IsNull()) {
+            for (Standard_Integer i = 1; i <= wires->Length(); ++i) {
+                result.push_back(TopoDS::Wire(wires->Value(i)));
+            }
+        }
+
+        return result;
+    }
+
+    std::vector<TopoDS_Wire> mergeNearbyWireFragments(const std::vector<TopoDS_Wire>& wires)
+    {
+        if (wires.size() < 2) {
+            return wires;
+        }
+
+        std::vector<int> parent(wires.size());
+        for (int i = 0; i < static_cast<int>(parent.size()); ++i) {
+            parent[i] = i;
+        }
+
+        auto findRoot = [&parent](int value) {
+            while (parent[value] != value) {
+                parent[value] = parent[parent[value]];
+                value = parent[value];
+            }
+            return value;
+        };
+
+        auto unite = [&parent, &findRoot](int lhs, int rhs) {
+            const int lhsRoot = findRoot(lhs);
+            const int rhsRoot = findRoot(rhs);
+            if (lhsRoot != rhsRoot) {
+                parent[rhsRoot] = lhsRoot;
+            }
+        };
+
+        for (int i = 0; i < static_cast<int>(wires.size()); ++i) {
+            for (int j = i + 1; j < static_cast<int>(wires.size()); ++j) {
+                if (wireEndPointsAreClose(wires[i], wires[j], kDisorderEdgeConnectTolerance)) {
+                    unite(i, j);
+                }
+            }
+        }
+
+        std::vector<std::vector<int>> groups(wires.size());
+        for (int i = 0; i < static_cast<int>(wires.size()); ++i) {
+            groups[findRoot(i)].push_back(i);
+        }
+
+        std::vector<TopoDS_Wire> mergedWires;
+        for (const std::vector<int>& group : groups) {
+            if (group.empty()) {
+                continue;
+            }
+
+            if (group.size() == 1) {
+                mergedWires.push_back(wires[group.front()]);
+                continue;
+            }
+
+            std::vector<TopoDS_Edge> groupEdges;
+            for (int wireIndex : group) {
+                collectWireEdges(wires[wireIndex], groupEdges);
+            }
+
+            std::vector<TopoDS_Wire> connectedGroup = connectEdgesToWiresLenient(groupEdges);
+            if (connectedGroup.empty()) {
+                for (int wireIndex : group) {
+                    mergedWires.push_back(wires[wireIndex]);
+                }
+                continue;
+            }
+
+            mergedWires.insert(mergedWires.end(), connectedGroup.begin(), connectedGroup.end());
+        }
+
+        return mergedWires;
+    }
+}
 // 连接多个边并返回复合曲线
 TopoDS_Wire OCCT_GraphOperations::ConnectEdges(const std::vector<TopoDS_Edge>& edges)
 {
@@ -243,30 +389,8 @@ TopoDS_Wire OCCT_GraphOperations::ConnectDisorderEdges(const std::vector<TopoDS_
 
 std::vector<TopoDS_Wire> OCCT_GraphOperations::ConnectDisorderEdgesToWires(const std::vector<TopoDS_Edge>& edgeList)
 {
-    std::vector<TopoDS_Wire> result;
-    if (edgeList.empty()) {
-        return result;
-    }
-    // 1. 将乱序的 Edge 放入一个序列中
-    Handle(TopTools_HSequenceOfShape) edges = new TopTools_HSequenceOfShape();
-    for (const auto& edge : edgeList) {
-        edges->Append(edge);
-    }
-
-    // 2. 调用连接工具
-    Handle(TopTools_HSequenceOfShape) wires;
-    Standard_Real tolerance = 1e-7; // 设置缝合精度
-    Standard_Boolean shared = Standard_True; // 是否共享顶点
-
-    ShapeAnalysis_FreeBounds::ConnectEdgesToWires(edges, tolerance, shared, wires);
-
-    // 3. 结果会存储在 wires 序列中（可能包含多个 Wire）
-    if (!wires.IsNull() && wires->Length() > 0) {
-        for (Standard_Integer i = 1; i <= wires->Length(); ++i) {
-            result.push_back(TopoDS::Wire(wires->Value(i)));
-        }
-    }
-    return result;
+    std::vector<TopoDS_Wire> result = connectEdgesToWiresLenient(edgeList);
+    return mergeNearbyWireFragments(result);
 }
 bool OCCT_GraphOperations::IsWireConsistentlyOriented(const TopoDS_Wire& wire)
 {
@@ -346,14 +470,14 @@ bool OCCT_GraphOperations::FitBSplineToArc(
     gp_Pnt& center,
     double& radius,
     gp_Pnt& startPoint,
-    gp_Pnt& endPoint) {
+    gp_Pnt& endPoint){
     // 1. 提取底层的 B 样条曲线
     Handle(Geom_BSplineCurve) bspline = Handle(Geom_BSplineCurve)::DownCast(adaptorCurve.Curve().Curve());
     if (bspline.IsNull()) return false;
 
     // 2. 尝试拟合为圆弧 (Geom_Circle)
     Handle(Geom_Curve) resultCurve = GeomConvert::CurveToBSplineCurve(bspline);
-    if (resultCurve.IsNull() || resultCurve->DynamicType() == STANDARD_TYPE(Geom_Circle)) {
+    if (resultCurve.IsNull() || resultCurve->DynamicType() == STANDARD_TYPE(Geom_Circle)) {     
         Handle(Geom_Circle) circle = Handle(Geom_Circle)::DownCast(resultCurve);
         center = circle->Position().Location();
         radius = circle->Radius();
@@ -363,7 +487,7 @@ bool OCCT_GraphOperations::FitBSplineToArc(
         endPoint = circle->Value(uEnd);
         return true;
     }
-    else if (resultCurve->DynamicType() == STANDARD_TYPE(Geom_TrimmedCurve)) {
+    else if(resultCurve->DynamicType() == STANDARD_TYPE(Geom_TrimmedCurve)) {
         // 在拟合后添加圆弧段检查
         Handle(Geom_TrimmedCurve) trimmed = Handle(Geom_TrimmedCurve)::DownCast(resultCurve);
         // 检查底层是否为圆
@@ -377,17 +501,17 @@ bool OCCT_GraphOperations::FitBSplineToArc(
             return true;
         }
     }
-    else if (resultCurve->DynamicType() == STANDARD_TYPE(Geom_BSplineCurve))
+    else if(resultCurve->DynamicType() == STANDARD_TYPE(Geom_BSplineCurve))
     {
-        Msg::ShowInfo("拟合结果为 B 样条曲线，无法转换为圆弧。");
+		Msg::ShowInfo("拟合结果为 B 样条曲线，无法转换为圆弧。");
         return false;
     }
 }
 
 bool OCCT_GraphOperations::IsCirAcr(const TopoDS_Edge& edge, gp_Pnt& center, double& radius, gp_Pnt& startPoint, gp_Pnt& endPoint)
 {
-    Standard_Real first, last;
-    Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+	Standard_Real first, last;
+	Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
     if (curve.IsNull()) return false;
 
     // 检查是否是修剪曲线
@@ -395,7 +519,7 @@ bool OCCT_GraphOperations::IsCirAcr(const TopoDS_Edge& edge, gp_Pnt& center, dou
     if (!trimmedCurve.IsNull())
     {
         curve = trimmedCurve->BasisCurve(); // 获取修剪曲线的基础曲线
-        Handle(Geom_Circle) baseCircle = Handle(Geom_Circle)::DownCast(curve);
+		Handle(Geom_Circle) baseCircle = Handle(Geom_Circle)::DownCast(curve);
         center = baseCircle->Position().Location();
         radius = baseCircle->Radius();
         // 直接获取修剪曲线的端点
@@ -414,9 +538,9 @@ bool OCCT_GraphOperations::IsCirAcr(const TopoDS_Edge& edge, gp_Pnt& center, dou
         return true;
     }
 
-    Handle(Geom_BSplineCurve) bspline = Handle(Geom_BSplineCurve)::DownCast(curve);
-    if (bspline.IsNull()) return false;
-    else {
+	Handle(Geom_BSplineCurve) bspline = Handle(Geom_BSplineCurve)::DownCast(curve);
+	if (bspline.IsNull()) return false;
+    else {                                                          
         double u0 = curve->FirstParameter();
         double u1 = curve->LastParameter();
         double u_mid = (u0 + u1) * 0.5;
@@ -437,10 +561,10 @@ bool OCCT_GraphOperations::IsCirAcr(const TopoDS_Edge& edge, gp_Pnt& center, dou
         // 检查拟合的圆是否与测试点接近
         //gp_Pnt circlePoint = fittedCircle->Value(u_test);
 
-        int SamplingNum = 10;// 采样点数量
+		int SamplingNum = 10;// 采样点数量
         for (double i = 1; i < SamplingNum; i++)
         {
-            double u_test = u0 + (u1 - u0) * (i / SamplingNum);
+			double u_test = u0 + (u1 - u0) * (i / SamplingNum);
             gp_Pnt testPoint = curve->Value(u_test);
             if (testPoint.Distance(center) - radius > 1e-2) return false;
         }
@@ -460,16 +584,15 @@ double OCCT_GraphOperations::ComputeMinAngle(const gp_Vec& theVec, const TopoDS_
     gp_Vec tangent;
     curve->D1(first, p, tangent);
 
-    return ComputeAngle(tangent, theVec);
+    return ComputeAngle(tangent,theVec);
 }
 
 double OCCT_GraphOperations::ComputeAngle(const gp_Vec& v1, const gp_Vec& v2)
-{
-    double dot = v1.Dot(v2);
+{   double dot = v1.Dot(v2);
     double mag1 = v1.Magnitude(), mag2 = v2.Magnitude();
     if (mag1 == 0 || mag2 == 0) return 0.0;  // 处理零向量
-
-    double cosAngle = dot / (mag1 * mag2);
+    
+    double cosAngle = dot / (mag1 * mag2); 
     double angle = std::acos(cosAngle);
     return angle > M_PI_2 ? M_PI - angle : angle;  // 返回锐角
 }
@@ -483,173 +606,87 @@ double OCCT_GraphOperations::ComputeAngle(const gp_Vec& v1, const gp_Vec& v2)
 #include <BRepBuilderAPI_MakeFace.hxx>
 TopoDS_Shape OCCT_GraphOperations::CreatOCCMeshShape(const std::vector<double>& nodeCoords, const std::vector<int>& elemTypes, const std::vector<std::vector<std::size_t>>& elemNodeTags)
 {
-    TopoDS_Compound result;
-    BRep_Builder builder;
-    builder.MakeCompound(result);
+        TopoDS_Compound result;
+        BRep_Builder builder;
+        builder.MakeCompound(result);
 
-    // 创建节点映射表：Gmsh节点标签 -> OCC顶点
-    std::map<std::size_t, TopoDS_Vertex> vertexMap;
+        // 创建节点映射表：Gmsh节点标签 -> OCC顶点
+        std::map<std::size_t, TopoDS_Vertex> vertexMap;
 
-    // 1. 创建所有顶点
-    for (std::size_t i = 0; i < nodeCoords.size() / 3; i++) {
-        double x = nodeCoords[3 * i];
-        double y = nodeCoords[3 * i + 1];
-        double z = nodeCoords[3 * i + 2];
+        // 1. 创建所有顶点
+        for (std::size_t i = 0; i < nodeCoords.size() / 3; i++) {
+            double x = nodeCoords[3 * i];
+            double y = nodeCoords[3 * i + 1];
+            double z = nodeCoords[3 * i + 2];
 
-        gp_Pnt point(x, y, z);
-        TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(point);
-        vertexMap[i + 1] = vertex; // Gmsh节点标签从1开始
-    }
-
-    // 2. 处理不同类型的网格单元
-    for (std::size_t i = 0; i < elemTypes.size(); i++) {
-        int elementType = elemTypes[i];
-        const std::vector<std::size_t>& elementNodes = elemNodeTags[i];
-
-        std::size_t nodesPerElement = 0;
-        switch (elementType) {
-        case 1: // 2-node line
-            nodesPerElement = 2;
-            break;
-        case 2: // 3-node triangle
-            nodesPerElement = 3;
-            break;
-        case 3: // 4-node quadrilateral
-            nodesPerElement = 4;
-            break;
-        case 4: // 4-node tetrahedron
-            nodesPerElement = 4;
-            break;
-        case 5: // 8-node hexahedron
-            nodesPerElement = 8;
-            break;
-        case 15: // 1-node point
-            nodesPerElement = 1;
-            break;
-        default:
-            std::cout << "警告: 未知单元类型 " << elementType << ", 跳过处理" << std::endl;
-            continue;
+            gp_Pnt point(x, y, z);
+            TopoDS_Vertex vertex = BRepBuilderAPI_MakeVertex(point);
+            vertexMap[i + 1] = vertex; // Gmsh节点标签从1开始
         }
 
-        std::size_t numElements = elementNodes.size() / nodesPerElement;
-        cout << "单元类型编号: " << elementType << " , 单元数量: " << numElements << endl;
-        for (std::size_t j = 0; j < numElements; j++) {
-            try {
-                // 提取当前单元的节点
-                std::vector<TopoDS_Vertex> currentVertices;
-                for (std::size_t k = 0; k < nodesPerElement; k++) {
-                    std::size_t nodeIndex = elementNodes[j * nodesPerElement + k];
-                    if (vertexMap.find(nodeIndex) != vertexMap.end()) {
-                        currentVertices.push_back(vertexMap[nodeIndex]);
-                    }
-                }
+        // 2. 处理不同类型的网格单元
+        for (std::size_t i = 0; i < elemTypes.size(); i++) {
+            int elementType = elemTypes[i];
+            const std::vector<std::size_t>& elementNodes = elemNodeTags[i];
 
-                if (currentVertices.size() != nodesPerElement) {
-                    continue;
-                }
+            std::size_t nodesPerElement = 0;
+            switch (elementType) {
+            case 1: // 2-node line
+                nodesPerElement = 2;
+                break;
+            case 2: // 3-node triangle
+                nodesPerElement = 3;
+                break;
+            case 3: // 4-node quadrilateral
+                nodesPerElement = 4;
+                break;
+            case 4: // 4-node tetrahedron
+                nodesPerElement = 4;
+                break;
+            case 5: // 8-node hexahedron
+                nodesPerElement = 8;
+                break;
+            case 15: // 1-node point
+                nodesPerElement = 1;
+                break;
+            default:
+                std::cout << "警告: 未知单元类型 " << elementType << ", 跳过处理" << std::endl;
+                continue;
+            }
 
-                // 根据单元类型创建相应的几何形状
-                switch (elementType) {
-                case 1: { // 线单元 - 创建边
-                    if (currentVertices.size() >= 2) {
-                        TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(currentVertices[0], currentVertices[1]);
-                        builder.Add(result, edge);
-                    }
-                    break;
-                }
-                case 2: { // 三角形单元 - 创建面
-                    if (currentVertices.size() >= 3) {
-                        BRepBuilderAPI_MakePolygon polygon;
-                        polygon.Add(currentVertices[0]);
-                        polygon.Add(currentVertices[1]);
-                        polygon.Add(currentVertices[2]);
-                        polygon.Close();// 闭合多边形
-
-                        if (polygon.IsDone()) {
-                            TopoDS_Wire wire = polygon.Wire();
-                            TopoDS_Face face = BRepBuilderAPI_MakeFace(wire);
-                            if (!face.IsNull()) {
-                                builder.Add(result, face);
-                            }
-                            else cout << "三角形面创建失败" << endl;
+            std::size_t numElements = elementNodes.size() / nodesPerElement;
+            cout << "单元类型编号: " << elementType << " , 单元数量: " << numElements << endl;
+            for (std::size_t j = 0; j < numElements; j++) {
+                try {
+                    // 提取当前单元的节点
+                    std::vector<TopoDS_Vertex> currentVertices;
+                    for (std::size_t k = 0; k < nodesPerElement; k++) {
+                        std::size_t nodeIndex = elementNodes[j * nodesPerElement + k];
+                        if (vertexMap.find(nodeIndex) != vertexMap.end()) {
+                            currentVertices.push_back(vertexMap[nodeIndex]);
                         }
                     }
-                    break;
-                }
-                case 3: { // 四边形单元 - 创建面
-                    if (currentVertices.size() >= 4) {
-                        try {
-                            // 获取四个顶点的坐标
-                            gp_Pnt P1 = BRep_Tool::Pnt(currentVertices[0]);
-                            gp_Pnt P2 = BRep_Tool::Pnt(currentVertices[1]);
-                            gp_Pnt P3 = BRep_Tool::Pnt(currentVertices[2]);
-                            gp_Pnt P4 = BRep_Tool::Pnt(currentVertices[3]);
 
-                            // 方法1：使用四点创建几何平面
-                            GC_MakePlane planeMaker(P1, P2, P3);
-                            if (planeMaker.IsDone()) {
-                                Handle(Geom_Plane) geometricPlane = planeMaker.Value();
-
-                                BRepBuilderAPI_MakePolygon polygon;
-                                polygon.Add(currentVertices[0]);
-                                polygon.Add(currentVertices[1]);
-                                polygon.Add(currentVertices[2]);
-                                polygon.Add(currentVertices[3]);
-                                polygon.Close();
-
-                                if (polygon.IsDone()) {
-                                    TopoDS_Wire wire = polygon.Wire();
-
-                                    // 使用明确的几何平面创建面
-                                    TopoDS_Face face = BRepBuilderAPI_MakeFace(geometricPlane, wire);
-
-                                    if (!face.IsNull()) {
-                                        builder.Add(result, face);
-                                    }
-                                    else {
-                                        // 如果失败，尝试不使用线环直接创建平面面
-                                        face = BRepBuilderAPI_MakeFace(geometricPlane, Precision::Confusion());
-                                        if (!face.IsNull()) {
-                                            builder.Add(result, face);
-                                        }
-                                        else {
-                                            builder.Add(result, wire); // 降级为线框显示
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        catch (Standard_Failure&) {
-                            // 创建失败时的备选方案
-                            BRepBuilderAPI_MakePolygon poly;
-                            poly.Add(currentVertices[0]);
-                            poly.Add(currentVertices[1]);
-                            poly.Add(currentVertices[2]);
-                            poly.Add(currentVertices[3]);
-                            poly.Close();
-
-                            if (poly.IsDone()) {
-                                builder.Add(result, poly.Wire());
-                            }
-                        }
+                    if (currentVertices.size() != nodesPerElement) {
+                        continue;
                     }
-                    break;
-                }
-                case 4: { // 四面体单元 
-                    TopoDS_Solid tetrahedron = CreateTetrahedronSolid(BRep_Tool::Pnt(currentVertices[0]), BRep_Tool::Pnt(currentVertices[1]),
-                        BRep_Tool::Pnt(currentVertices[2]), BRep_Tool::Pnt(currentVertices[3]));
-                    if (!tetrahedron.IsNull()) builder.Add(result, tetrahedron);
-                    else {
-                        Msg::ShowWarning("创建四面体实体失败，降级为显示面。");
-                        std::vector<std::vector<int>> tetraFaces = {
-                           {0, 1, 2}, {0, 3, 1}, {0, 2, 3}, {1, 3, 2}
-                        };
-                        for (const auto& faceIndices : tetraFaces) {
+
+                    // 根据单元类型创建相应的几何形状
+                    switch (elementType) {
+                    case 1: { // 线单元 - 创建边
+                        if (currentVertices.size() >= 2) {
+                            TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(currentVertices[0], currentVertices[1]);
+                            builder.Add(result, edge);
+                        }
+                        break;
+                    }
+                    case 2: { // 三角形单元 - 创建面
+                        if (currentVertices.size() >= 3) {
                             BRepBuilderAPI_MakePolygon polygon;
-                            for (int idx : faceIndices) {
-                                polygon.Add(currentVertices[idx]);
-                            }
-                            polygon.Close();
+                            polygon.Add(currentVertices[0]);
+                            polygon.Add(currentVertices[1]);
+                            polygon.Add(currentVertices[2]);
+                            polygon.Close();// 闭合多边形
 
                             if (polygon.IsDone()) {
                                 TopoDS_Wire wire = polygon.Wire();
@@ -657,38 +694,86 @@ TopoDS_Shape OCCT_GraphOperations::CreatOCCMeshShape(const std::vector<double>& 
                                 if (!face.IsNull()) {
                                     builder.Add(result, face);
                                 }
+                                else cout << "三角形面创建失败" << endl;
                             }
                         }
+                        break;
                     }
-                    break;
-                }
-                case 5: { // 六面体单元 - 创建四边形面组成的复合体
-                    // 六面体面的节点顺序（需要根据Gmsh的实际顺序调整）
-                    if (currentVertices.size() == 8) {
-                        // 创建六面体实体
-                        TopoDS_Solid hexahedron = CreateHexahedronSolid(currentVertices);
-                        if (!hexahedron.IsNull()) {
-                            builder.Add(result, hexahedron);
-                        }
-                        else {
-                            Msg::ShowWarning("创建六面体实体失败，降级为显示面。");
-                            // 六面体面的节点顺序（需要根据Gmsh的实际顺序调整）
-                            std::vector<std::vector<int>> hexFaces = {
-                                {0, 1, 2, 3}, // 底面
-                                {4, 7, 6, 5}, // 顶面
-                                {0, 4, 5, 1}, // 前面
-                                {1, 5, 6, 2}, // 右面
-                                {2, 6, 7, 3}, // 后面
-                                {3, 7, 4, 0}  // 左面
-                            };
-                            for (const auto& faceIndices : hexFaces) {
-                                BRepBuilderAPI_MakePolygon polygon;
-                                for (int idx : faceIndices) {
-                                    if (idx < currentVertices.size()) {
-                                        polygon.Add(currentVertices[idx]);
+                    case 3: { // 四边形单元 - 创建面
+                        if (currentVertices.size() >= 4) {
+                            try {
+                                // 获取四个顶点的坐标
+                                gp_Pnt P1 = BRep_Tool::Pnt(currentVertices[0]);
+                                gp_Pnt P2 = BRep_Tool::Pnt(currentVertices[1]);
+                                gp_Pnt P3 = BRep_Tool::Pnt(currentVertices[2]);
+                                gp_Pnt P4 = BRep_Tool::Pnt(currentVertices[3]);
+
+                                // 方法1：使用四点创建几何平面
+                                GC_MakePlane planeMaker(P1, P2, P3);
+                                if (planeMaker.IsDone()) {
+                                    Handle(Geom_Plane) geometricPlane = planeMaker.Value();
+
+                                    BRepBuilderAPI_MakePolygon polygon;
+                                    polygon.Add(currentVertices[0]);
+                                    polygon.Add(currentVertices[1]);
+                                    polygon.Add(currentVertices[2]);
+                                    polygon.Add(currentVertices[3]);
+                                    polygon.Close();
+
+                                    if (polygon.IsDone()) {
+                                        TopoDS_Wire wire = polygon.Wire();
+
+                                        // 使用明确的几何平面创建面
+                                        TopoDS_Face face = BRepBuilderAPI_MakeFace(geometricPlane, wire);
+
+                                        if (!face.IsNull()) {
+                                            builder.Add(result, face);
+                                        }
+                                        else {
+                                            // 如果失败，尝试不使用线环直接创建平面面
+                                            face = BRepBuilderAPI_MakeFace(geometricPlane, Precision::Confusion());
+                                            if (!face.IsNull()) {
+                                                builder.Add(result, face);
+                                            }
+                                            else {
+                                                builder.Add(result, wire); // 降级为线框显示
+                                            }
+                                        }
                                     }
                                 }
+                            }
+                            catch (Standard_Failure&) {
+                                // 创建失败时的备选方案
+                                BRepBuilderAPI_MakePolygon poly;
+                                poly.Add(currentVertices[0]);
+                                poly.Add(currentVertices[1]);
+                                poly.Add(currentVertices[2]);
+                                poly.Add(currentVertices[3]);
+                                poly.Close();
+
+                                if (poly.IsDone()) {
+                                    builder.Add(result, poly.Wire());
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    case 4: { // 四面体单元 
+                        TopoDS_Solid tetrahedron = CreateTetrahedronSolid(BRep_Tool::Pnt(currentVertices[0]), BRep_Tool::Pnt(currentVertices[1]),
+                            BRep_Tool::Pnt(currentVertices[2]), BRep_Tool::Pnt(currentVertices[3]));
+                        if(!tetrahedron.IsNull()) builder.Add(result, tetrahedron);
+                        else {
+                            Msg::ShowWarning("创建四面体实体失败，降级为显示面。");
+                            std::vector<std::vector<int>> tetraFaces = {
+                               {0, 1, 2}, {0, 3, 1}, {0, 2, 3}, {1, 3, 2}
+                            };
+                            for (const auto& faceIndices : tetraFaces) {
+                                BRepBuilderAPI_MakePolygon polygon;
+                                for (int idx : faceIndices) {
+                                    polygon.Add(currentVertices[idx]);
+                                }
                                 polygon.Close();
+
                                 if (polygon.IsDone()) {
                                     TopoDS_Wire wire = polygon.Wire();
                                     TopoDS_Face face = BRepBuilderAPI_MakeFace(wire);
@@ -698,24 +783,62 @@ TopoDS_Shape OCCT_GraphOperations::CreatOCCMeshShape(const std::vector<double>& 
                                 }
                             }
                         }
+                        break;
                     }
-                    break;
+                    case 5: { // 六面体单元 - 创建四边形面组成的复合体
+                        // 六面体面的节点顺序（需要根据Gmsh的实际顺序调整）
+                        if (currentVertices.size() == 8) {
+                            // 创建六面体实体
+                            TopoDS_Solid hexahedron = CreateHexahedronSolid(currentVertices);
+                            if (!hexahedron.IsNull()) {
+                                builder.Add(result, hexahedron);
+                            }
+                            else {
+                                Msg::ShowWarning("创建六面体实体失败，降级为显示面。");
+                                // 六面体面的节点顺序（需要根据Gmsh的实际顺序调整）
+                                std::vector<std::vector<int>> hexFaces = {
+                                    {0, 1, 2, 3}, // 底面
+                                    {4, 7, 6, 5}, // 顶面
+                                    {0, 4, 5, 1}, // 前面
+                                    {1, 5, 6, 2}, // 右面
+                                    {2, 6, 7, 3}, // 后面
+                                    {3, 7, 4, 0}  // 左面
+                                };
+                                for (const auto& faceIndices : hexFaces) {
+                                    BRepBuilderAPI_MakePolygon polygon;
+                                    for (int idx : faceIndices) {
+                                        if (idx < currentVertices.size()) {
+                                            polygon.Add(currentVertices[idx]);
+                                        }
+                                    }
+                                    polygon.Close();
+                                    if (polygon.IsDone()) {
+                                        TopoDS_Wire wire = polygon.Wire();
+                                        TopoDS_Face face = BRepBuilderAPI_MakeFace(wire);
+                                        if (!face.IsNull()) {
+                                            builder.Add(result, face);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    case 15: { // 点单元
+                        builder.Add(result, currentVertices[0]);
+                        break;
+                    }
+                    }
                 }
-                case 15: { // 点单元
-                    builder.Add(result, currentVertices[0]);
-                    break;
+                catch (const Standard_Failure& e) {
+                    std::cerr << "创建单元时出错: " << e.GetMessageString() << std::endl;
+                    continue;
                 }
-                }
-            }
-            catch (const Standard_Failure& e) {
-                std::cerr << "创建单元时出错: " << e.GetMessageString() << std::endl;
-                continue;
             }
         }
-    }
 
-    std::cout << "成功创建OCC网格形状，包含 " << vertexMap.size() << " 个顶点" << std::endl;
-    return result;
+        std::cout << "成功创建OCC网格形状，包含 " << vertexMap.size() << " 个顶点" << std::endl;
+        return result;
 }
 
 void OCCT_GraphOperations::PrintMeshInfo(int NodeNum, std::vector<int> elemTypes, std::vector<std::vector<std::size_t>> elemTags)
@@ -807,21 +930,21 @@ TopoDS_Solid OCCT_GraphOperations::CreateTetrahedronSolid(const gp_Pnt& p0, cons
             sewer.Add(face4);
             sewer.Perform();
 
-            TopoDS_Shell shell = TopoDS::Shell(sewer.SewedShape());
+                TopoDS_Shell shell = TopoDS::Shell(sewer.SewedShape());
 
-            // 创建实体
-            BRepBuilderAPI_MakeSolid solidMaker;
-            solidMaker.Add(shell);
+                // 创建实体
+                BRepBuilderAPI_MakeSolid solidMaker;
+                solidMaker.Add(shell);
 
-            if (solidMaker.IsDone()) {
-                return solidMaker.Solid();
-            }
+                if (solidMaker.IsDone()) {
+                    return solidMaker.Solid();
+                }
         }
     }
     catch (const Standard_Failure& e) {
         Standard_Character Buffer[1024] = { 0 };
         Sprintf(Buffer, "创建四面体实体失败:", e.GetMessageString());
-        Msg::ShowError(Buffer);
+		Msg::ShowError(Buffer);
         return TopoDS_Solid();
     }
 }
@@ -875,7 +998,7 @@ TopoDS_Solid OCCT_GraphOperations::CreateHexahedronSolid(const std::vector<TopoD
             if (solidMaker.IsDone()) {
                 return solidMaker.Solid();
             }
-
+            
         }
 
     }
@@ -1011,7 +1134,7 @@ void OCCT_GraphOperations::AssociateNodes(OCCT_ShapeList shapes, std::vector<dou
         // 如果节点在任意一个形状上，添加到结果列表
         if (isOnShape) {
             nodeIds.push_back(nodeId);
-            pnts.push_back(nodePoint);
+			pnts.push_back(nodePoint);
         }
     }
 

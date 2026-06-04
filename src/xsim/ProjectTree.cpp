@@ -966,37 +966,6 @@ void ProjectTree::Popup(const int x, const int y)
 				}
 				AngleDialog::pointsAndVec.swap(filteredPV);
 			}
-			// 3.1 从按切削刃分组的数据中移除对应点，并删除空组
-			if (!AngleDialog::groupedPointsAndVec.empty()) {
-				std::vector<std::vector<std::vector<double>>> filteredGroups;
-				filteredGroups.reserve(AngleDialog::groupedPointsAndVec.size());
-				for (const auto& group : AngleDialog::groupedPointsAndVec) {
-					std::vector<std::vector<double>> filteredGroup;
-					filteredGroup.reserve(group.size());
-					for (const auto& data : group) {
-						if (data.size() < 3) {
-							filteredGroup.push_back(data);
-							continue;
-						}
-						bool matched = false;
-						for (const auto& target : points) {
-							if (std::abs(data[0] - target[0]) < 1e-6 &&
-								std::abs(data[1] - target[1]) < 1e-6 &&
-								std::abs(data[2] - target[2]) < 1e-6) {
-								matched = true;
-								break;
-							}
-						}
-						if (!matched) {
-							filteredGroup.push_back(data);
-						}
-					}
-					if (!filteredGroup.empty()) {
-						filteredGroups.push_back(filteredGroup);
-					}
-				}
-				AngleDialog::groupedPointsAndVec.swap(filteredGroups);
-			}
 
 			// 4. 从映射中移除该item
 			m_pointItemToPointsMap.remove(currentItem);

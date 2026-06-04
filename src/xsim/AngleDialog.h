@@ -53,6 +53,7 @@ private:
 	QPushButton* btnComputeAngles;
     QPushButton* btnEdgeOffset;
     QPushButton* btnTestSelectedFacesEdge;
+
 signals:
     void selRakeFaceSignal();
 	void selClearanceFaceSignal();

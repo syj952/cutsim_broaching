@@ -46,8 +46,8 @@ MainWindow::MainWindow()
 	});
 
 	setWindowTitle(tr("XSim")); //标题名
-	//this->createMdiChild(); 启动时自动创建子窗口
-    this->newFile();
+	this->createMdiChild(); //启动时自动创建子窗口
+    //this->newFile();
 }
 
 MainWindow::~MainWindow()

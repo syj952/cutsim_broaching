@@ -1,0 +1,304 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{F28E2FCF-B12D-7557-FF1A-E7214601020D}</ProjectGuid>
+    <RootNamespace>cutsim</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <Keyword>QtVS_v304</Keyword>
+    <QtMsBuild Condition="'$(QtMsBuild)'=='' AND Exists('$(LocalAppData)\QtMsBuild\qt.targets')">$(LocalAppData)\QtMsBuild</QtMsBuild>
+    <QtMsBuild Condition="'$(QtMsBuild)'=='' OR !Exists('$(QtMsBuild)\qt.targets')">$(MSBuildProjectDirectory)\QtMsBuild</QtMsBuild>
+    <ProjectName>XCutsim-Broach</ProjectName>
+    <CudaToolkitDir>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\</CudaToolkitDir>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="$(QtMsBuild)\qt_defaults.props" Condition="Exists('$(QtMsBuild)\qt_defaults.props')" />
+  <PropertyGroup Label="QtSettings" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <QtInstall>D:\Qt\5.14.2\msvc2017_64</QtInstall>
+    <QtModules>core;xml;sql;opengl;network;gui;widgets;serialport;concurrent;charts</QtModules>
+    <QtDeploy>true</QtDeploy>
+    <QtBuildConfig>debug</QtBuildConfig>
+  </PropertyGroup>
+  <PropertyGroup Label="QtSettings" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <QtInstall>D:\Qt\5.14.2\msvc2017_64</QtInstall>
+    <QtModules>core;xml;sql;opengl;network;gui;widgets;serialport;concurrent;charts</QtModules>
+  </PropertyGroup>
+  <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') OR !Exists('$(QtMsBuild)\Qt.props')">
+    <Message Importance="High" Text="QtMsBuild: could not locate qt.targets, qt.props; project may not build correctly." />
+  </Target>
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+    <Import Project="cutsimconfig.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <IncludePath>.\3rdparty\opencascade-7.7.0\inc;.\3rdparty\gmsh-4.12.0-Windows64-sdk\include;.\3rdparty\boost_1_72_0\boost;.\3rdparty\boost_1_72_0;.\3rdparty\rapidjson-master\include;.\3rdparty\nupengl.core.0.1.0.1\build\native\include;$(MSBuildProjectDirectory);.\3rdparty\eigen-3.4.0;.\3rdparty\VTK8.2.0\include\vtk-8.2;$(IncludePath)</IncludePath>
+    <LibraryPath>.\3rdparty\nupengl.core.0.1.0.1\build\native\lib\x64;.\3rdparty\opencascade-7.7.0\win64\vc14\lib;.\3rdparty\gmsh-4.12.0-Windows64-sdk\lib;D:\Qt\5.14.2\msvc2017_64\lib;.\3rdparty\VTK8.2.0\lib\Debug;$(MSBuildProjectDirectory);$(LibraryPath)</LibraryPath>
+    <IgnoreImportLibrary>true</IgnoreImportLibrary>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <IncludePath>.\3rdparty\opencascade-7.7.0\inc;.\3rdparty\gmsh-4.12.0-Windows64-sdk\include;.\3rdparty\boost_1_72_0\boost;.\3rdparty\boost_1_72_0;.\3rdparty\rapidjson-master\include;.\3rdparty\nupengl.core.0.1.0.1\build\native\include;$(MSBuildProjectDirectory);.\3rdparty\eigen-3.4.0;.\3rdparty\VTK8.2.0\include\vtk-8.2;$(IncludePath)</IncludePath>
+    <LibraryPath>.\3rdparty\opencascade-7.7.0\win64\vc14\lib;.\3rdparty\gmsh-4.12.0-Windows64-sdk\lib;.\3rdparty\nupengl.core.0.1.0.1\build\native\lib\x64;D:\Qt\5.14.2\msvc2017_64\lib;.\3rdparty\VTK8.2.0\lib\Release;$(MSBuildProjectDirectory);.\3rdparty\eigen-3.4.0;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>ENABLE_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;Qt5Cored.lib;Qt5Guid.lib;Qt5Widgetsd.lib;Qt5Chartsd.lib;legacy_stdio_definitions.lib;TKBinL.lib;TKBinTObj.lib;TKBinXCAF.lib;TKBO.lib;TKBool.lib;TKBRep.lib;TKCAF.lib;TKCDF.lib;TKD3DHost.lib;TKD3DHostTest.lib;TKDCAF.lib;TKDFBrowser.lib;TKDraw.lib;TKernel.lib;TKExpress.lib;TKFeat.lib;TKFillet.lib;TKG2d.lib;TKG3d.lib;TKGeomAlgo.lib;TKGeomBase.lib;TKHLR.lib;TKIGES.lib;TKIVtk.lib;TKIVtkDraw.lib;TKLCAF.lib;TKMath.lib;TKMesh.lib;TKMeshVS.lib;TKMessageModel.lib;TKMessageView.lib;TKOffset.lib;TKOpenGl.lib;TKOpenGles.lib;TKOpenGlesTest.lib;TKOpenGlTest.lib;TKPrim.lib;TKQADraw.lib;TKRWMesh.lib;TKService.lib;TKShapeView.lib;TKShHealing.lib;TKStd.lib;TKStdL.lib;TKSTEP.lib;TKSTEP209.lib;TKSTEPAttr.lib;TKSTEPBase.lib;TKSTL.lib;TKTInspector.lib;TKTInspectorAPI.lib;TKTObj.lib;TKTObjDRAW.lib;TKToolsDraw.lib;TKTopAlgo.lib;TKTopTest.lib;TKTreeModel.lib;TKV3d.lib;TKVCAF.lib;TKView.lib;TKViewerTest.lib;TKVInspector.lib;TKVRML.lib;TKXCAF.lib;TKXDE.lib;TKXDECascade.lib;TKXDEDRAW.lib;TKXDEIGES.lib;TKXDESTEP.lib;TKXMesh.lib;TKXml.lib;TKXmlL.lib;TKXmlTObj.lib;TKXmlXCAF.lib;TKXSBase.lib;TKXSDRAW.lib;gmsh.lib;vtkCommonCore-8.2.lib;vtkCommonDataModel-8.2.lib;vtkRenderingCore-8.2.lib;vtkRenderingOpenGL2-8.2.lib;vtkInteractionStyle-8.2.lib;vtkFiltersCore-8.2.lib;vtkRenderingFreeType-8.2.lib;vtkGUISupportQt-8.2.lib;vtkCommonTransforms-8.2.lib;vtkCommonMath-8.2.lib;vtkIOGeometry-8.2.lib;vtkCommonExecutionModel-8.2.lib;vtkRenderingAnnotation-8.2.lib;vtkRenderingGL2PSOpenGL2-8.2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <HeapReserveSize>3000000000</HeapReserveSize>
+      <StackReserveSize>
+      </StackReserveSize>
+      <LargeAddressAware>true</LargeAddressAware>
+      <IgnoreSpecificDefaultLibraries>ucrt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+    </Link>
+    <CudaCompile>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
+      <GenerateRelocatableDeviceCode>true</GenerateRelocatableDeviceCode>
+      <AdditionalCompilerOptions>/utf-8</AdditionalCompilerOptions>
+    </CudaCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;WIN64;NDEBUG;_CONSOLE;ENABLE_CUDA;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;Qt5Core.lib;Qt5Gui.lib;Qt5Widgets.lib;legacy_stdio_definitions.lib;TKBinL.lib;TKBinTObj.lib;TKBinXCAF.lib;TKBO.lib;TKBool.lib;TKBRep.lib;TKCAF.lib;TKCDF.lib;TKD3DHost.lib;TKD3DHostTest.lib;TKDCAF.lib;TKDFBrowser.lib;TKDraw.lib;TKernel.lib;TKExpress.lib;TKFeat.lib;TKFillet.lib;TKG2d.lib;TKG3d.lib;TKGeomAlgo.lib;TKGeomBase.lib;TKHLR.lib;TKIGES.lib;TKIVtk.lib;TKIVtkDraw.lib;TKLCAF.lib;TKMath.lib;TKMesh.lib;TKMeshVS.lib;TKMessageModel.lib;TKMessageView.lib;TKOffset.lib;TKOpenGl.lib;TKOpenGles.lib;TKOpenGlesTest.lib;TKOpenGlTest.lib;TKPrim.lib;TKQADraw.lib;TKRWMesh.lib;TKService.lib;TKShapeView.lib;TKShHealing.lib;TKStd.lib;TKStdL.lib;TKSTEP.lib;TKSTEP209.lib;TKSTEPAttr.lib;TKSTEPBase.lib;TKSTL.lib;TKTInspector.lib;TKTInspectorAPI.lib;TKTObj.lib;TKTObjDRAW.lib;TKToolsDraw.lib;TKTopAlgo.lib;TKTopTest.lib;TKTreeModel.lib;TKV3d.lib;TKVCAF.lib;TKView.lib;TKViewerTest.lib;TKVInspector.lib;TKVRML.lib;TKXCAF.lib;TKXDE.lib;TKXDECascade.lib;TKXDEDRAW.lib;TKXDEIGES.lib;TKXDESTEP.lib;TKXMesh.lib;TKXml.lib;TKXmlL.lib;TKXmlTObj.lib;TKXmlXCAF.lib;TKXSBase.lib;TKXSDRAW.lib;gmsh.lib;vtkCommonCore-8.2.lib;vtkCommonDataModel-8.2.lib;vtkRenderingCore-8.2.lib;vtkRenderingOpenGL2-8.2.lib;vtkInteractionStyle-8.2.lib;vtkFiltersCore-8.2.lib;vtkRenderingFreeType-8.2.lib;vtkGUISupportQt-8.2.lib;vtkCommonTransforms-8.2.lib;vtkCommonMath-8.2.lib;vtkIOGeometry-8.2.lib;vtkCommonExecutionModel-8.2.lib;vtkRenderingAnnotation-8.2.lib;vtkRenderingGL2PSOpenGL2-8.2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <HeapReserveSize>3000000000</HeapReserveSize>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+    <CudaCompile>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
+      <AdditionalCompilerOptions>/utf-8</AdditionalCompilerOptions>
+    </CudaCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\cutsim\broaching\cutsim_broaching.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\bbox.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\cuda_functions.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\curve_widget.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\cutsim.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\gldata.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\glwidget.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\lex_analyzer.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\machine.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\marching_cubes.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\mfem_analysis1.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\mfem_mesh_writer.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\octnode.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\octree.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\stl.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\volume.cpp" />
+    <ClCompile Include="src\cutsim\milling\cutsim_milling.cpp" />
+    <ClCompile Include="src\digitaltwin\digitaltwinctrl.cpp" />
+    <ClCompile Include="src\digitaltwin\digitaltwin_milling\digitaltwin_milling.cpp">
+      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">input</DynamicSource>
+      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(Filename).moc</QtMocFileName>
+      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Release|x64'">input</DynamicSource>
+      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(Filename).moc</QtMocFileName>
+    </ClCompile>
+    <ClCompile Include="src\digitaltwin\monitoring\fileparser.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\heidenhainclient.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\heidenhaincommand.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\mchconfig.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\serialportcom.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\simensclient.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\simenscommand.cpp" />
+    <ClCompile Include="src\digitaltwin\monitoring\vtkwidget.cpp" />
+    <ClCompile Include="src\xsim\AngleDialog.cpp" />
+    <ClCompile Include="src\xsim\BoundaryConditionDialog.cpp" />
+    <ClCompile Include="src\xsim\ForceMonitorWidget.cpp" />
+    <ClCompile Include="src\xsim\GUI_Message.cpp" />
+    <ClCompile Include="src\xsim\main.cpp" />
+    <ClCompile Include="src\xsim\MainWindow.cpp" />
+    <ClCompile Include="src\xsim\MainWindow2.cpp" />
+    <ClCompile Include="src\xsim\MaterialDialog.cpp" />
+    <ClCompile Include="src\xsim\mdichild.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action1.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action2.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_FEM.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_cutsim.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_digitaltwin.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_mchconfig.cpp" />
+    <ClCompile Include="src\xsim\mdichild_action_serialport.cpp" />
+    <ClCompile Include="src\xsim\mdichild_init.cpp" />
+    <ClCompile Include="src\xsim\mdichild_slots.cpp" />
+    <ClCompile Include="src\xsim\MeshManager.cpp" />
+    <ClCompile Include="src\xsim\Msg.cpp" />
+    <ClCompile Include="src\xsim\MsgUI.cpp" />
+    <ClCompile Include="src\xsim\MyDocument.cpp" />
+    <ClCompile Include="src\xsim\MyViewer.cpp" />
+    <ClCompile Include="src\xsim\OcctView.cpp" />
+    <ClCompile Include="src\xsim\OcctWindow.cpp" />
+    <ClCompile Include="src\xsim\OcctWindow.cxx" />
+    <ClCompile Include="src\xsim\OCCT_GraphDriver.cpp" />
+    <ClCompile Include="src\xsim\OCCT_GraphOperations.cpp" />
+    <ClCompile Include="src\xsim\OCCT_ShapeExport.cpp" />
+    <ClCompile Include="src\xsim\OCCT_ShapeImport.cpp" />
+    <ClCompile Include="src\xsim\ProjectTree.cpp" />
+    <ClCompile Include="src\xsim\PropertyView.cpp" />
+    <ClCompile Include="src\xsim\QShapeExportUI.cpp" />
+    <ClCompile Include="src\xsim\QShapeImportUI.cpp" />
+    <ClCompile Include="src\xsim\StraightnessMonitorWidget.cpp">
+      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">input</DynamicSource>
+      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(Filename).moc</QtMocFileName>
+      <DynamicSource Condition="'$(Configuration)|$(Platform)'=='Release|x64'">input</DynamicSource>
+      <QtMocFileName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(Filename).moc</QtMocFileName>
+    </ClCompile>
+    <ClCompile Include="src\xsim\TranslationDialog.cpp" />
+    <ClCompile Include="src\xsim\Viewer.cpp" />
+    <ClCompile Include="src\xsim\ViewerInteractor.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="resource.h" />
+    <QtMoc Include="src\cutsim\cutsim\curve_widget.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\glvertex.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\lex_analyzer.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\stl.hpp" />
+    <QtMoc Include="src\cutsim\milling\cutsim_milling.hpp" />
+    <QtMoc Include="src\digitaltwin\digitaltwin_milling\digitaltwin_milling.hpp" />
+    <QtMoc Include="src\digitaltwin\digitaltwinctrl.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\fileparser.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\heidenhainclient.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\heidenhaincommand.h" />
+    <QtMoc Include="src\digitaltwin\monitoring\mchconfig.h" />
+    <QtMoc Include="src\digitaltwin\monitoring\serialportcom.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\simensclient.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\simenscommand.h" />
+    <ClInclude Include="src\digitaltwin\monitoring\ui_vtkwidget.h" />
+    <QtMoc Include="src\digitaltwin\monitoring\vtkwidget.h" />
+    <ClInclude Include="src\xsim\ComplainUtf8.h" />
+    <QtMoc Include="src\xsim\ForceMonitorWidget.hpp" />
+    <ClInclude Include="src\xsim\Icon.h" />
+    <QtMoc Include="src\xsim\StraightnessMonitorWidget.h" />
+    <ClInclude Include="src\xsim\Viewer.h" />
+    <ClInclude Include="src\xsim\ViewerInteractor.h" />
+    <QtMoc Include="src\xsim\MaterialDialog.h" />
+    <ClInclude Include="src\xsim\Msg.h" />
+    <ClInclude Include="src\xsim\MsgUI.h" />
+    <ClInclude Include="src\xsim\MyDocument.h" />
+    <ClInclude Include="src\xsim\OcctVisualizer.hpp" />
+    <ClInclude Include="src\xsim\QShapeExportUI.h" />
+    <ClInclude Include="src\xsim\QShapeImportUI.h" />
+    <QtMoc Include="src\xsim\TranslationDialog.h" />
+    <QtMoc Include="src\xsim\PropertyView.h" />
+    <QtMoc Include="src\xsim\ProjectTree.h" />
+    <QtMoc Include="src\xsim\OcctView.h" />
+    <ClInclude Include="src\xsim\OcctWindow.h" />
+    <ClInclude Include="src\xsim\OCCT_GraphDriver.h" />
+    <ClInclude Include="src\xsim\OCCT_GraphOperations.h" />
+    <ClInclude Include="src\xsim\OCCT_ShapeExport.h" />
+    <ClInclude Include="src\xsim\OCCT_ShapeImport.h" />
+    <ClInclude Include="src\xsim\OCCT_ShapeList.h" />
+    <ClInclude Include="src\xsim\OCCT_Utf8String.h" />
+    <ClInclude Include="src\xsim\OCCT_Utf8StringList.h" />
+    <QtMoc Include="src\xsim\MyViewer.h" />
+    <QtMoc Include="src\xsim\MeshManager.h" />
+    <QtMoc Include="src\xsim\mdichild.h" />
+    <QtMoc Include="src\xsim\MainWindow.h" />
+    <QtMoc Include="src\xsim\GUI_Message.h" />
+    <QtMoc Include="src\xsim\BoundaryConditionDialog.h" />
+    <QtMoc Include="src\xsim\AngleDialog.h" />
+    <ClInclude Include="src\cutsim\cutsim_def.hpp" />
+    <QtMoc Include="src\cutsim\broaching\cutsim_broaching.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\bbox.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\cube_wireframe.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\cuda_functions.hpp" />
+    <QtMoc Include="src\cutsim\cutsim\cutsim.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\facet.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\gldata.hpp" />
+    <QtMoc Include="src\cutsim\cutsim\glwidget.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\isosurface.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\machine.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\marching_cubes.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\mfem_analysis1.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\mfem_mesh_writer.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\octnode.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\octree.hpp" />
+    <QtMoc Include="src\cutsim\cutsim\volume.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="mch\UCP800DURO-Tr10l100-toolspindle-server.mch" />
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtRcc Include="src\xsim\mdi.qrc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="XCutsim.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtUic Include="src\digitaltwin\monitoring\vtkwidget.ui" />
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="cuda_diff_volume.cu" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(QtMsBuild)\qt.targets" Condition="Exists('$(QtMsBuild)\qt.targets')" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.targets" />
+  </ImportGroup>
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>这台计算机上缺少此项目引用的 NuGet 程序包。使用“NuGet 程序包还原”可下载这些程序包。有关更多信息，请参见 http://go.microsoft.com/fwlink/?LinkID=322105。缺少的文件是 {0}。</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('packages\nupengl.core.redist.0.1.0.1\build\native\nupengl.core.redist.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\nupengl.core.redist.0.1.0.1\build\native\nupengl.core.redist.targets'))" />
+    <Error Condition="!Exists('packages\nupengl.core.0.1.0.1\build\native\nupengl.core.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\nupengl.core.0.1.0.1\build\native\nupengl.core.targets'))" />
+  </Target>
+</Project>
+
+
