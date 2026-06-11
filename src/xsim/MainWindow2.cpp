@@ -172,6 +172,13 @@ void MainWindow::createActions()
 			if (activeMdiChild())activeMdiChild()->RunCutsim();
 			});
 		CutsimMenu->addAction(CutsimAct);
+		CutsimMenu->addSeparator();
+		QAction* ExportCutsimResultAct = new QAction(tr("结果导出"), this);
+		ExportCutsimResultAct->setStatusTip(tr("导出切削后的 STL 和切削力数据"));
+		connect(ExportCutsimResultAct, &QAction::triggered, this, [=]() {
+			if (activeMdiChild())activeMdiChild()->ExportCutsimResults();
+			});
+		CutsimMenu->addAction(ExportCutsimResultAct);
 	}
 	//机床通讯_lc
 	{

@@ -21,10 +21,12 @@
 #ifndef OCTNODE_H
 #define OCTNODE_H
 
+#include <cassert>
 #include <iostream>
 #include <sstream>
 #include <fstream>
 #include <list>
+#include <memory>
 #include <set>
 #include <vector>
 
@@ -45,6 +47,15 @@ struct CutInfo {
     float side_min_dist;   // 到该边的最小距离
 };
 ///added hust
+
+struct NodeIndex {
+    int x;
+    int y;
+    int z;
+
+    NodeIndex() : x(0), y(0), z(0) {}
+    NodeIndex(int xi, int yi, int zi) : x(xi), y(yi), z(zi) {}
+};
 
 typedef struct cuttingStatus {
     int cutcount;
@@ -80,7 +91,7 @@ public:
     Octnode(Octnode* parent, unsigned int idx, double nodescale, unsigned int nodedepth, GLData* gl);
     /// create root node
     Octnode(GLVertex* root_center, double nodescale, GLData* gl);
-    virtual ~Octnode();
+    ~Octnode();
     /// create all eight children of this node
     void subdivide();
     /// for subdivision even though state is not undecided. called/used from Octree::init()
@@ -139,12 +150,12 @@ public:
 
     /// the center point of this node
     ///< added hust cwe node index in x, y, z, root (0,0,0); subdivide in x, y, and z respectively.
-    GLVertex* indexs;
+    NodeIndex* indexs;
     ///< added hust
     GLVertex* center; // the centerpoint of this node
     ///< added hust  Vertex Status
-    int vertexnotsaved[8];
-    GLVertex* vindexs[8];//
+    unsigned char vertexnotsaved[8];
+    NodeIndex* vindexs[8];//
     ///< added hust
     /// the tree-dept of this node
     unsigned int depth; // depth of node
@@ -163,9 +174,12 @@ public:
     /// remove given id from vertex set
     void removeIndex(unsigned int id);
     /// is the vertex set empty?
-    bool vertexSetEmpty() { return vertexSet.empty(); }
+    bool vertexSetEmpty() const { return !vertexSet || vertexSet->empty(); }
     /// return begin() for vertex set
-    unsigned int vertexSetTop() { return *(vertexSet.begin()); }
+    unsigned int vertexSetTop() const {
+        assert(vertexSet && !vertexSet->empty());
+        return vertexSet->back();
+    }
     /// remove all vertices associated with this node. calls GLData to also remove nodes
     void clearVertexSet();
 
@@ -215,9 +229,8 @@ protected:
     inline void setChildInvalid( unsigned int id );
 
     /// the vertex indices that this node has produced. These correspond to vertex id's in the GLData.
-    std::set<unsigned int> vertexSet;
+    std::unique_ptr<std::vector<unsigned int>> vertexSet;
     /// return center of child with index n
-    GLVertex* childcenter(int n); // return position of child centerpoint by pointer
     GLVertex  childcenterValue(int n); // return position of child centerpoint by value
     /// The GLData, i.e. vertices and polygons, associated with this node
     /// when this node is deleted we notify the GLData that vertices should be removed
@@ -228,6 +241,8 @@ protected:
     /// bit-field indicating if children have valid gldata
     unsigned char childStatus;
 
+    void bindInternalStorage();
+
     // STATIC
     /// the direction to the vertices, from the center
     static const GLVertex direction[8];
@@ -235,6 +250,10 @@ protected:
     static const unsigned char octant[8];
 
 private:
+    GLVertex centerStorage;
+    GLVertex vertexStorage[8];
+    NodeIndex indexStorage;
+    NodeIndex vindexStorage[8];
 };
 
 } // end namespace

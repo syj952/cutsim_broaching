@@ -37,7 +37,11 @@ void MdiChild::RunDigitalTwin()
 
         connect(configWidget, &MchConfig::mchFileSelected, this->p_VtkWidget, &VTKWidget::loadMchFile, Qt::UniqueConnection);
         connect(configWidget, &MchConfig::mchDataSignal, this->p_VtkWidget, &VTKWidget::linshi, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchDataSignal, this, &MdiChild::updateMachineCommData, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchDataSignal_forGCode, this->p_VtkWidget, &VTKWidget::linshi_GCode, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchDataSignal_forGCode, this, &MdiChild::updateMachineCommData, Qt::UniqueConnection);
         connect(configWidget, &MchConfig::mchSingleDataSignal, this->p_VtkWidget, &VTKWidget::linshi_toolindex, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchSingleDataSignal, this, &MdiChild::updateMachineCommToolIndex, Qt::UniqueConnection);
         connect(configWidget, &MchConfig::lengthToolTipUpdated, this->p_VtkWidget, &VTKWidget::onlengthToolTipUpdated, Qt::UniqueConnection);
         connect(this->p_VtkWidget, &VTKWidget::mchDatatoCutsim, m_digitalTwinController, &DigitalTwinController::onMchDataUpdated, Qt::UniqueConnection);
 
@@ -47,6 +51,7 @@ void MdiChild::RunDigitalTwin()
         topLayout->addWidget(serialportWidget, 1);
 
         connect(serialportWidget, &SerialPortCom::newData, this->p_VtkWidget, &VTKWidget::linshi_2, Qt::UniqueConnection);
+        connect(serialportWidget, &SerialPortCom::newData, this, &MdiChild::updateMachineCommForceData, Qt::UniqueConnection);
         connect(serialportWidget, &SerialPortCom::newData, m_digitalTwinController, &DigitalTwinController::onForceDataUpdated, Qt::UniqueConnection);
 
         ///———————————材料去除仿真———————————
@@ -73,7 +78,7 @@ void MdiChild::RunDigitalTwin()
         QLabel* digitaltwin_xLabel = new QLabel("X:");
         QLineEdit* digitaltwin_x1Edit = new QLineEdit("-100");
         //x1Edit->setReadOnly(true);
-        QLineEdit* digitaltwin_x2Edit = new QLineEdit("100");
+        QLineEdit* digitaltwin_x2Edit = new QLineEdit("0");
         //x2Edit->setReadOnly(true);
         digitaltwin_xconstraint->addWidget(digitaltwin_xLabel);
         digitaltwin_xconstraint->addWidget(digitaltwin_x1Edit);
@@ -95,7 +100,7 @@ void MdiChild::RunDigitalTwin()
         QLabel* digitaltwin_zLabel = new QLabel("z:");
         QLineEdit* digitaltwin_z1Edit = new QLineEdit("-100");
         //y1Edit->setReadOnly(true);
-        QLineEdit* digitaltwin_z2Edit = new QLineEdit("0");
+        QLineEdit* digitaltwin_z2Edit = new QLineEdit("100");
         //y2Edit->setReadOnly(true);
         digitaltwin_zconstraint->addWidget(digitaltwin_zLabel);
         digitaltwin_zconstraint->addWidget(digitaltwin_z1Edit);
@@ -105,7 +110,7 @@ void MdiChild::RunDigitalTwin()
         // 刀具参数输入
         QHBoxLayout* cutterParamsLayout = new QHBoxLayout();
         QLabel* cutterParamsLabel = new QLabel("Tool Parameters");
-        QLineEdit* cutterParamsEdit = new QLineEdit("0,4,4,31,0,31;");
+        QLineEdit* cutterParamsEdit = new QLineEdit("1,4,4,4,0,4;0,4,4,31,4,31;");
         cutterParamsEdit->setPlaceholderText("Format: Type, Radius1, Radius2, Length, z_start, z_end;...");
         cutterParamsLayout->addWidget(cutterParamsLabel);
         cutterParamsLayout->addWidget(cutterParamsEdit, 1);

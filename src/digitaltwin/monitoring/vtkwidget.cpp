@@ -51,10 +51,8 @@ VTKWidget::VTKWidget(QWidget *parent)
     ui->channelBox->setCurrentIndex(3);
     ui->channelBox->setStyleSheet(
         "QComboBox QAbstractItemView {"
-        "    background-color: white;"                 // 设置下拉列表背景色
-        "    selection-background-color: lightblue;"   // 设置选中项背景色
-        "    font-family: Microsoft YaHei, Microsoft YaHei UI;"  // 下拉项字体
-        "}"
+        "    background-color: white;"                 // 设置下拉列表背景�?        "    selection-background-color: lightblue;"   // 设置选中项背景色
+        "    font-family: Microsoft YaHei, Microsoft YaHei UI;"  // 下拉项字�?        "}"
     );
 
     //    double triangleArray[15000*3*3];
@@ -66,8 +64,7 @@ VTKWidget::VTKWidget(QWidget *parent)
     //    //
     //    double colorArray[15000*3];
     //    for(int i = 0; i < numTriangles *3; ++i) {
-    //        colorArray[i] = QRandomGenerator::global()->generateDouble();  // 生成0-1之间的随机颜色值
-    //    }
+    //        colorArray[i] = QRandomGenerator::global()->generateDouble();  // 生成0-1之间的随机颜色�?    //    }
     //    AddTriangles(renderer, triangleArray, numTriangles, colorArray);
 }
 
@@ -86,6 +83,19 @@ void VTKWidget::loadMchFile(const QString &filePath){
 void VTKWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     vtkWidget->resize(this->size());
+}
+
+void VTKWidget::setInfoOverlayVisible(bool visible)
+{
+    ui->frame->setVisible(visible);
+    ui->frame_2->setVisible(visible);
+}
+
+void VTKWidget::setColorChannelIndex(int index)
+{
+    if (index >= 0 && index < ui->channelBox->count()) {
+        ui->channelBox->setCurrentIndex(index);
+    }
 }
 
 void VTKWidget::WorldAxesDisplay(){
@@ -261,7 +271,6 @@ void VTKWidget::ToolPathDisplay(vtkSmartPointer<vtkPoints> points, double *data,
     allLines->Modified();
 }
 
-//void VTKWidget::linshi(double ppp[6], double rpm, double feed){
 void VTKWidget::linshi(const std::array<double, 6>& ppp, double rpm, double feed){
     v_rpm = rpm;
     ui->label_posX->setText(QString::number(ppp[0]));//g_workpieceOffset[0]
@@ -271,7 +280,6 @@ void VTKWidget::linshi(const std::array<double, 6>& ppp, double rpm, double feed
     ui->label_posC->setText(QString::number(ppp[3]));//+0.0003
     ui->label_feed->setText(QString::number(feed));
     ui->label_rpm->setText(QString::number(rpm));
-    //MachineMotion(ppp, force_port, ui->channelBox->currentIndex(), feed, rpm);
     MachineMotion(const_cast<double*>(ppp.data()), force_port, ui->channelBox->currentIndex(), feed, rpm);
 }
 
@@ -329,8 +337,8 @@ void VTKWidget::MachineMotion(double *MacPos, double *data, int index, double fe
     vtkMatrix4x4* C_matrix = assemblyMap["C"]->GetMatrix();
     vtkMatrix4x4* A_matrix = assemblyMap["A"]->GetMatrix();
     vtkNew<vtkMatrix4x4> Full_matrix, Inverse_matrix;
-    vtkMatrix4x4::Multiply4x4(A_matrix, C_matrix, Full_matrix);//
-    vtkMatrix4x4::Invert(Full_matrix, Inverse_matrix);//
+    vtkMatrix4x4::Multiply4x4(A_matrix, C_matrix, Full_matrix);
+    vtkMatrix4x4::Invert(Full_matrix, Inverse_matrix);
 
     double worldPoint[3] = {axis_pos[0], axis_pos[1], axis_pos[2]+600-toolTipLength};
     double wpPoint[3];
@@ -490,11 +498,9 @@ vtkSmartPointer<vtkMatrix4x4> VTKWidget::getWorkpieceToWorldMatrixManual() const
 
 void VTKWidget::computeToolTip()
 {
-    // 获取每个移动/旋转部件的位姿矩阵 再相乘
     vtkSmartPointer<vtkMatrix4x4> toolToWorld = getToolToWorldMatrixManual();
     vtkSmartPointer<vtkMatrix4x4> workpieceToWorld = getWorkpieceToWorldMatrixManual();
 
-    // 刀尖点相对于刀具
     vtkNew<vtkTransform> tipToToolTransform;
     tipToToolTransform->PostMultiply();
     tipToToolTransform->Identity();
@@ -514,7 +520,7 @@ void VTKWidget::computeToolTip()
     vtkNew<vtkTransform> pointToWorkpieceTransform;
     pointToWorkpieceTransform->PostMultiply();
     pointToWorkpieceTransform->Identity();
-    pointToWorkpieceTransform->Translate(185, 0, 150);//151.672);//yt记录(185, 0, 150)//(0.0884, 65.7406, 145.4944);裁切的小块 且旋转后// (185, 0, 150);//(0,0,151.672) + (185,0,150)z=301.672
+    pointToWorkpieceTransform->Translate(185, 0, 150);// (185, 0, 150);
     vtkMatrix4x4* pointToWorkpiece = pointToWorkpieceTransform->GetMatrix();
 
     vtkNew<vtkMatrix4x4> workpieceToPoint;
@@ -522,26 +528,6 @@ void VTKWidget::computeToolTip()
 
     vtkNew<vtkMatrix4x4> tipToPoint;
     vtkMatrix4x4::Multiply4x4(workpieceToPoint, tipToWorkpiece, tipToPoint);
-
-    //------------------------新增 工件坐标系调整-------------------------------//
-    vtkNew<vtkMatrix4x4> oldPointToNewPoint;
-    oldPointToNewPoint->Identity();
-    // x_new = y_old
-    oldPointToNewPoint->SetElement(0, 0, 0.0);
-    oldPointToNewPoint->SetElement(0, 1, 1.0);
-    oldPointToNewPoint->SetElement(0, 2, 0.0);
-    // y_new = z_old
-    oldPointToNewPoint->SetElement(1, 0, 0.0);
-    oldPointToNewPoint->SetElement(1, 1, 0.0);
-    oldPointToNewPoint->SetElement(1, 2, 1.0);
-    // z_new = x_old
-    oldPointToNewPoint->SetElement(2, 0, 1.0);
-    oldPointToNewPoint->SetElement(2, 1, 0.0);
-    oldPointToNewPoint->SetElement(2, 2, 0.0);
-    // 位姿从旧工件固定点坐标系表达，转换成新工件固定点坐标系表达
-    vtkNew<vtkMatrix4x4> tipToPointOutput;
-    vtkMatrix4x4::Multiply4x4(oldPointToNewPoint, tipToPoint, tipToPointOutput);
-    //---------------------------------------------------------------------------------------//
 
     double x = tipToPoint->GetElement(0, 3);
     double y = tipToPoint->GetElement(1, 3);
@@ -607,20 +593,15 @@ void VTKWidget::computeToolTip()
     mchData[7] = C;
     emit mchDatatoCutsim(mchData);
 
-    //printMatrix("T_tool_to_world:", toolToWorld);
-    //printMatrix("T_workpiece_to_world:", workpieceToWorld);
-    //printMatrix("ToolTip pose relative to workpiece local frame:", tipToPoint);
+    //QFile file(txtPath);
+    //if (file.open(QIODevice::Append | QIODevice::Text))
+    //{
+    //    QTextStream out(&file);
+    //    out.setCodec("UTF-8");  // Release 不乱�?
+    //    QString currentTime = QTime::currentTime().toString("HH:mm:ss.zzz");
 
-    QFile file(txtPath);
-    if (file.open(QIODevice::Append | QIODevice::Text))
-    {
-        QTextStream out(&file);
-        out.setCodec("UTF-8");  // Release 不乱码
-
-        QString currentTime = QTime::currentTime().toString("HH:mm:ss.zzz");
-
-        out << currentTime << "\t" << mchData[2] << "\t" << mchData[3] << "\t" << mchData[4] << "\t" << mchData[5] << "\t" << mchData[6] << "\t" << mchData[7] << "\n";
-    }
+    //    out << currentTime << "\t" << mchData[2] << "\t" << mchData[3] << "\t" << mchData[4] << "\t" << mchData[5] << "\t" << mchData[6] << "\t" << mchData[7] << "\n";
+    //}
 }
 
 double VTKWidget::normalizeRad(double angle)
@@ -634,4 +615,81 @@ double VTKWidget::normalizeRad(double angle)
     }
 
     return angle - PI;
+}
+
+void VTKWidget::linshi_GCode(const std::array<double, 6>& ppp, double rpm, double feed) {
+    // visualization
+    v_rpm = rpm;
+    ui->label_posX->setText(QString::number(ppp[0]));
+    ui->label_posY->setText(QString::number(ppp[1]));
+    ui->label_posZ->setText(QString::number(ppp[2]));
+    ui->label_posA->setText(QString::number(ppp[4]));
+    ui->label_posC->setText(QString::number(ppp[3]));
+    ui->label_feed->setText(QString::number(feed));
+    ui->label_rpm->setText(QString::number(rpm));
+    
+    double axis_pos[5] = { ppp[0], ppp[1], ppp[2], ppp[4], ppp[3] };//X/Y/Z/A/C/SP
+    // VTK: A and C motion
+    for (const Component& comp : components) {
+        if (assemblyMap.contains(comp.name)) {
+            vtkSmartPointer<vtkAssembly> assembly = assemblyMap[comp.name];
+
+            if (comp.name == "A") {
+                UpdateComponentTransform(assembly, 0, 0, 0, -axis_pos[3], 0);
+            }
+            else if (comp.name == "C") {
+                UpdateComponentTransform(assembly, 0, 0, 0, 0, -axis_pos[4]);
+            }
+        }
+    }
+
+	// workpiece coordinate system adjustment
+    vtkMatrix4x4* C_matrix = assemblyMap["C"]->GetMatrix();
+    vtkMatrix4x4* A_matrix = assemblyMap["A"]->GetMatrix();
+    vtkNew<vtkMatrix4x4> Full_matrix;
+    vtkMatrix4x4::Multiply4x4(A_matrix, C_matrix, Full_matrix);
+
+    double wpPoint[3] = { axis_pos[0] + Coor_workpiece_to_vtkworld[0], axis_pos[1] + Coor_workpiece_to_vtkworld[1], axis_pos[2] + Coor_workpiece_to_vtkworld[2] };
+    double vtkWorldPoint[3];
+    vtkNew<vtkTransform> Point_transform;
+    Point_transform->SetMatrix(Full_matrix);
+    Point_transform->TransformPoint(wpPoint, vtkWorldPoint);
+
+	// VTK: X/Y/Z motion
+    for (const Component& comp : components) {
+        if (assemblyMap.contains(comp.name)) {
+            vtkSmartPointer<vtkAssembly> assembly = assemblyMap[comp.name];
+
+            if (comp.name == "X") {
+                UpdateComponentTransform(assembly, vtkWorldPoint[0], 0, 0, 0, 0);
+            }
+            else if (comp.name == "Y") {
+                UpdateComponentTransform(assembly, 0, vtkWorldPoint[1], 0, 0, 0);
+            }
+            else if (comp.name == "Z") {
+                UpdateComponentTransform(assembly, 0, 0, vtkWorldPoint[2] - (600 - toolTipLength), 0, 0);
+            }
+        }
+    }
+
+	// create toolpath line
+    if (runtime > 1) {
+        vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
+        points->InsertNextPoint(p_last_2wp[0], p_last_2wp[1], p_last_2wp[2]);
+        points->InsertNextPoint(wpPoint[0], wpPoint[1], wpPoint[2]);
+        ToolPathDisplay(points, force_port, ui->channelBox->currentIndex(), feed);
+    }
+    p_last_2wp[0] = wpPoint[0];
+    p_last_2wp[1] = wpPoint[1];
+    p_last_2wp[2] = wpPoint[2];
+    runtime++;
+
+    renderWindow->Render();
+
+    // run simulation every 10 read Gcode
+    CallCutsimCounts++;
+    if (CallCutsimCounts >= 10) {
+        computeToolTip();
+        CallCutsimCounts = 0;
+    }
 }

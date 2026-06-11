@@ -26,7 +26,6 @@
 #include "ComplainUtf8.h"
 #include "OCCT_ShapeList.h"
 #include "BRepTools.hxx"
-#include <BRep_Tool.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <TopTools_HSequenceOfShape.hxx>
 

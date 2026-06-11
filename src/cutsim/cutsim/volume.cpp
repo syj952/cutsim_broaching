@@ -74,11 +74,11 @@ namespace cutsim {
 
     void RectVolume::calcBB() {
         bb.clear();
-        // 计算包围盒的最小/最大点（考虑容差）
+        // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀岄柛娑卞幗缁绢垶鏌ｉ埡鍌氱婵炲牊鍨垮鐢稿焵椤掑倷鐒?闂佸搫鐗冮崑鎾愁熆閸棗鎳庢禒顖炴煥濞戞澧ｉ柍褜鍓欓崯鍐差瀶閼姐倐鍋撻崷顓熷殌婵☆垰锕弫?
         GLVertex minpt = center - GLVertex(lengthX / 2, lengthY / 2, lengthZ / 2) - GLVertex(TOLERANCE, TOLERANCE, TOLERANCE);
         GLVertex maxpt = center + GLVertex(lengthX / 2, lengthY / 2, lengthZ / 2) + GLVertex(TOLERANCE, TOLERANCE, TOLERANCE);
 
-        // 将点添加到包围盒
+        // 闁诲繐绻愬Λ娑㈠磻閿濆惓搴ｆ嫚閹绘帩娼遍梺鍛婂笚濠㈡鈧灚锕㈠畷鍓佲偓闈涙啞绾?
         bb.addPoint(minpt);
         bb.addPoint(maxpt);
     }
@@ -297,6 +297,12 @@ namespace cutsim {
     }
 
     void StlVolume::calcBB() {
+        V21.clear(); V21invV21dotV21.clear();
+        V32.clear(); V32invV32dotV32.clear();
+        V13.clear(); V13invV13dotV13.clear();
+
+        std::vector<Facet*> valid_facets;
+        valid_facets.reserve(facets.size());
         for (int i = 0; i < (int)facets.size(); i++) {
             facets[i]->v1 += center; facets[i]->v2 += center; facets[i]->v3 += center;
             facets[i]->normal = facets[i]->normal.rotateABC(angle.x, angle.y, angle.z);
@@ -312,18 +318,31 @@ namespace cutsim {
             std::cout << "vertex v3: " << facets[i]->v3.x << " y: " << facets[i]->v3.y << " z: " << facets[i]->v3.z << "\n";
 
             GLVertex normal = (facets[i]->v2 - facets[i]->v1).cross(facets[i]->v3 - facets[i]->v1);
+            if (normal.norm() <= CALC_TOLERANCE) {
+                continue;
+            }
             normal.normalize();
             //assert ((facets[i]->normal - normal).norm() < CALC_TOLERANCE);
             facets[i]->normal = normal;
+            valid_facets.push_back(facets[i]);
         }
-        if (facets.size()) {
-            maxpt.x = fmax(fmax(facets[0]->v1.x, facets[0]->v2.x), facets[0]->v3.x);
-            maxpt.y = fmax(fmax(facets[0]->v1.y, facets[0]->v2.y), facets[0]->v3.y);
-            maxpt.z = fmax(fmax(facets[0]->v1.z, facets[0]->v2.z), facets[0]->v3.z);
-            minpt.x = fmin(fmin(facets[0]->v1.x, facets[0]->v2.x), facets[0]->v3.x);
-            minpt.y = fmin(fmin(facets[0]->v1.y, facets[0]->v2.y), facets[0]->v3.y);
-            minpt.z = fmin(fmin(facets[0]->v1.z, facets[0]->v2.z), facets[0]->v3.z);
+
+        facets.swap(valid_facets);
+        if (facets.empty()) {
+            bb.clear();
+            maxpt = GLVertex(0, 0, 0);
+            minpt = GLVertex(0, 0, 0);
+            maxlength = 0.0;
+            invcubesize = 0.0;
+            return;
         }
+
+        maxpt.x = fmax(fmax(facets[0]->v1.x, facets[0]->v2.x), facets[0]->v3.x);
+        maxpt.y = fmax(fmax(facets[0]->v1.y, facets[0]->v2.y), facets[0]->v3.y);
+        maxpt.z = fmax(fmax(facets[0]->v1.z, facets[0]->v2.z), facets[0]->v3.z);
+        minpt.x = fmin(fmin(facets[0]->v1.x, facets[0]->v2.x), facets[0]->v3.x);
+        minpt.y = fmin(fmin(facets[0]->v1.y, facets[0]->v2.y), facets[0]->v3.y);
+        minpt.z = fmin(fmin(facets[0]->v1.z, facets[0]->v2.z), facets[0]->v3.z);
         for (int i = 0; i < (int)facets.size(); i++) {
             maxpt.x = fmax(fmax(fmax(facets[i]->v1.x, facets[i]->v2.x), facets[i]->v3.x), maxpt.x);
             maxpt.y = fmax(fmax(fmax(facets[i]->v1.y, facets[i]->v2.y), facets[i]->v3.y), maxpt.y);
@@ -1469,7 +1488,7 @@ namespace cutsim {
         length = 0.0;
         center = GLVertex(0, 0, 0);
         flutelength = 0.0;
-        //初始化运动学参数
+        //闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥庡墰缁犮儵鏌涢弬璇插妞ゆ帞鍠栧畷锝夊磼濞戞瑦顔?
         q_x[0.0] = 0.0;
         dot_q_x[0.0] = 0.0;
         ddot_q_x[0.0] = 0.0;
@@ -1607,51 +1626,51 @@ namespace cutsim {
                 }
             }
         }
-        // 不在任何分段内，返回负值（外部）
+        // 婵炴垶鎸哥粔鏉戯耿椤忓懐顩烽悹浣哥－缁夊潡鏌涢幒鎴烆棡妞ゆ柨鐭傚畷姗€宕崘顏嗩槷闁哄鏅滈弻銊ッ洪弽顐ｅ闁绘柨鐨濋崑鎾舵兜妞嬪海顦╂繝銏ｅ煐閻楃娀宕曢幘顔芥櫖?
         return t.z;
     }
 
     Cutting broaching_AptCutterVolume::dist_cd(const GLVertex & p) const {
         Cutting result = { 0.0, NO_COLLISION, 1 };
         result.f = dist(p);
-        // 可根据需要扩展碰撞类型判定
+        // 闂佸憡鐟崹閬嶆偋閹绢喖绠叉い鏇楀亾婵炴挸澧庨幉鐗堟媴閻熸壋鎸呴柣蹇曞仦濞叉粓锝為锕€绠婚柣鎰祷椤箓鏌涢妸銉剰闁搞劎鏅埀?
         return result;
     }
 
     std::vector<std::vector<std::vector<double>>>
         broaching_AptCutterVolume::convertTo3DVibrationVectors(const std::vector<std::vector<double>>&pre_vibration_vectors,
             int num_dofs,
-            const std::vector<size_t>&modes_to_read) {  // 修改参数为模态索引列表
+            const std::vector<size_t>&modes_to_read) {  // 婵烇絽娴傞崰妤呭极婵傜鐭楅柛灞剧⊕濞堣泛鈽夐幘璺哄妺閼垛晠鏌熼鑳厡闁稿被鍔岄锝夊即閻愯尙浠氶柣?
         if (pre_vibration_vectors.empty()) {
             return {};
         }
 
-        // 检查数据完整性
+        // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕闁哄棛鍠栭獮鎴︻敊閼测晜娈梺杞扮閻°劑鍩€?
         size_t total_dofs = pre_vibration_vectors[0].size();
         if (total_dofs % num_dofs != 0) {
-            throw std::invalid_argument("总自由度数量不是每个节点自由度数的整数倍");
+            throw std::invalid_argument("total dofs is not divisible by node dofs");
         }
 
-        // 创建三维向量（根据指定模态数量）
+        // 闂佸憡甯楃粙鎴犵磽閹惧鈻斿璺烘湰濡﹪鏌涘顓炵伌闁革絾妞介弫宥夊醇閻斿搫顥戦梺纭咁嚃閸犳鈧灚姘ㄩ埀顒冾潐绾板秷鍟梺璇″厸閻掞箓寮抽悢鍏肩厒闊洢鍎崇粈?
         size_t num_nodes = total_dofs / num_dofs;
         std::vector<std::vector<std::vector<double>>> vibration_vectors(
-            modes_to_read.size(),  // 根据指定模态数量创建
+            modes_to_read.size(),  // 闂佸搫绉烽～澶婄暤娓氣偓楠炴劙宕惰閺嗙増淇婇妤€澧查柍褜鍏涢悞锕傚汲閻斿吋鐓傞煫鍥ㄦ尭閻忥紕鈧?
             std::vector<std::vector<double>>(num_dofs, std::vector<double>(num_nodes))
         );
 
-        // 转换指定模态数据
+        // 闁哄鍎愰崜姘暦閺屻儱绠伴柛銉戝懏姣庡┑鈽嗗灙閸撴繈鍩€椤戣法鍔嶉柡鍡欏枛楠?
         for (size_t i = 0; i < modes_to_read.size(); ++i) {
             size_t mode = modes_to_read[i];
             if (mode >= pre_vibration_vectors.size()) {
-                throw std::invalid_argument("请求的模态阶数超过数据范围");
+                throw std::invalid_argument("requested mode index is out of range");
             }
 
-            // 检查模态数据一致性
+            // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕閼垛晠鏌熼璺ㄥ妽闁哄棛鍠栭獮鎴︻敊閼姐値浼囬梺鐓庡槻閻°劑鍩€?
             if (pre_vibration_vectors[mode].size() != total_dofs) {
-                throw std::invalid_argument("不同模态的特征向量长度不一致");
+                throw std::invalid_argument("mode vector length is inconsistent");
             }
 
-            // 填充数据
+            // 婵犻潧顦介崑鍕储閺嶎厼鏋侀柣妤€鐗嗙粊?
             for (int dof = 0; dof < num_dofs; ++dof) {
                 for (size_t node = 0; node < num_nodes; ++node) {
                     size_t index = node * num_dofs + dof;
@@ -1663,7 +1682,7 @@ namespace cutsim {
         return vibration_vectors;
     }
 
-    // 保留原函数用于向后兼容
+    // 婵烇絽娲︾换鍕汲閳ь剟鏌涘Ο鐓庢瀻闁搞倝浜跺顐﹀箥椤旇姤娈㈡繛瀛樼矊妤犳悂骞冨鍫濊Е閹肩补鈧櫕鍊柣?
     std::vector<std::vector<std::vector<double>>>
         broaching_AptCutterVolume::convertTo3DVibrationVectors(const std::vector<std::vector<double>>&pre_vibration_vectors,
             int num_dofs,
@@ -1675,57 +1694,57 @@ namespace cutsim {
         return convertTo3DVibrationVectors(pre_vibration_vectors, num_dofs, modes);
     }
 
-    // 计算点到线段在切削速度垂直平面上的投影距离
+    // 闁荤姳绶ょ槐鏇㈡偩婵犳碍鍊烽柣鐔告緲閻撳倻绱掗悙顒€顕滄い鏂跨焸瀹曠兘濡搁妷銉р偓濂告煕閹剧韬柍褜鍓涢崰搴ｂ偓瑙勫▕瀹曞綊宕掑鍕嚱濡ょ姷鍋炴繛濠傤焽閻楀牏鈻斿┑鐘插閻ｉ亶鏌熼懜鍨濠靛倹鐗滈幑鍕攽閸偆鈧?
     double broaching_AptCutterVolume::calculateCutThickness(const GLVertex & current_point, const GLVertex & prev_point1, const GLVertex & prev_point2,
         const GLVertex & velocity_vector) {
-        // 切削速度向量
+        // 闂佸憡甯掑ú銈嗘櫠濞戙垺鐒婚柣鏂垮槻椤斿﹪鏌涘顓炵伌闁?
         GLVertex v = velocity_vector;
 
-        // 计算切削速度垂直平面的法向量（切削速度向量本身）
+        // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柛銉戝喚鏉搁梻渚囧亞閸犲海鈧濞婂畷褰掑磼濠婂嫮鍑藉Δ鐘靛仦婵炲﹤顭囨导瀛樺剭闁告洦鍓涢妴濠囨煕濮橆厼鐏撮柛锝嗘そ閺佸秹宕煎┑鍡欌偓濂告煕閹剧韬柍褜鍓涢崰搴ｂ偓瑙勫▕瀹曘儵骞嬮敃鈧▍銈夋煛閸偄澧查梻濞炬櫊閺?
         GLVertex plane_normal = v;
         plane_normal.normalize();
 
-        // 计算前一个切削刃的线段向量
+        // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀堢€广儱瀚鍗炩槈閹垮啩绨婚柛銊ョ箻瀹曟粍绻濋崒姘扁偓鎾煟閵娿儱顏柛銈呴閳绘捇妫冨☉娆忊偓濠氭⒑?
         GLVertex segment_vector = prev_point2 - prev_point1;
 
-        // 计算当前点到线段起点的向量
+        // 闁荤姳绶ょ槐鏇㈡偩閺勫繈浜归柟鎯у暱椤ゅ懘鏌ｉ幇顔藉殌闁糕晛鐬奸惀顏堝箰鎼搭喖鏂€闁荤姍鍥舵闁稿缍侀幆鍐礋椤愶絽鈧姊?
         GLVertex point_to_start = current_point - prev_point1;
 
-        // 计算线段向量在切削速度垂直平面上的投影
+        // 闁荤姳绶ょ槐鏇㈡偩閼姐倗妫柟绋垮瘨閸炰粙鏌涘顓炵伌闁革絾妞藉畷鐑藉Ω閵夈儳鈧ジ鏌涢幘绛硅含闁逞屽墰閸犲海鈧濞婂畷褰掑磼濠婂嫮鍑藉Δ鐘靛仦婵炲﹤顭囬悧鍫⑩枖濠电姴瀚悾閬嶆煙閼稿灚绀€濠?
         GLVertex segment_projection = segment_vector - plane_normal * (segment_vector.dot(plane_normal));
 
-        // 计算当前点到线段起点的向量在切削速度垂直平面上的投影
+        // 闁荤姳绶ょ槐鏇㈡偩閺勫繈浜归柟鎯у暱椤ゅ懘鏌ｉ幇顔藉殌闁糕晛鐬奸惀顏堝箰鎼搭喖鏂€闁荤姍鍥舵闁稿缍侀幆鍐礋椤愶絽鈧姊洪幓鎺旂婵犫偓椤忓牆绀嗛柛銉戝喚鏉搁梻渚囧亞閸犲海鈧濞婂畷褰掑磼濠婂嫮鍑藉Δ鐘靛仦婵炲﹤顭囬悧鍫⑩枖濠电姴瀚悾閬嶆煙閼稿灚绀€濠?
         GLVertex point_projection = point_to_start - plane_normal * (point_to_start.dot(plane_normal));
 
-        // 计算投影点在线段投影上的参数t
+        // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绠柡鍥╁仜椤ㄦ盯鏌ｉ幇顔藉殌婵犫偓椤忓棛妫柟绋垮瘨閸炰粙鏌熼懜鍨濠靛倹鐗楃粙澶嬬節閸曨剛鏆犻梺鍛婄懃閸婂綊寮抽悞?
         double t = 0.0;
         double segment_projection_length_sq = segment_projection.dot(segment_projection);
 
         if (segment_projection_length_sq > 1e-12) {
             t = point_projection.dot(segment_projection) / segment_projection_length_sq;
-            t = std::max(0.0, std::min(1.0, t)); // 限制t在[0,1]范围内
+            t = std::max(0.0, std::min(1.0, t)); // 闂傚倸瀚崝鏇㈠春濮娾晠鏌涢敂瑙勬0,1]闂佽偐鍘ч崯顐⒚洪崸妤€绀?
         }
 
-        // 计算投影点
+        // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绠柡鍥╁仜椤ㄦ盯鏌?
         GLVertex projected_point = prev_point1 + segment_vector * t;
 
-        // 计算当前点到投影点的向量在切削速度垂直平面上的投影
+        // 闁荤姳绶ょ槐鏇㈡偩閺勫繈浜归柟鎯у暱椤ゅ懘鏌ｉ幇顔藉殌闁糕晛鐭傞獮搴ㄥ即閻愬樊娈梺缁樺姇濠€鍗炩枔閹达箑瑙﹂柟杈剧畱濞呫倝鏌涢敂鍝勫闁搞劌绻樺畷婊勭節閸ワ絽浜鹃柣鏂垮槻椤斿﹪鏌涢妸銉モ偓璇裁洪崸妤冨祦闁规儼濮ゅ銊モ槈閹剧鍔熸繛鍫熷灴楠炲酣寮撮悙宸
         GLVertex distance_vector = current_point - projected_point;
         GLVertex projected_distance = distance_vector - plane_normal * (distance_vector.dot(plane_normal));
 
-        // 返回投影距离
+        // 闁哄鏅滈弻銊ッ洪弽顓炵闁哄洨鍋涢〃娑㈡偣閻戞绠樻い?
         return projected_distance.norm();
     }
 
 
     int broaching_AptCutterVolume::readBladeAnglesFromFile(const std::string & filename, int blade_id) {
-        // 确保blade_id在有效范围内
+        // 缂佺虎鍙庨崰鏇犳崲濮濇笓ade_id闂侀潻璐熼崝宥咃耿娓氣偓瀵偊宕奸敐鍛Ш闂佹悶鍎插娆撳船?
         if (blade_id < 0) {
             std::cerr << "Invalid blade_id: " << blade_id << std::endl;
             return 0;
         }
 
-        // 调整容器大小以容纳新的切削刃数据
+        // 闁荤姴顑呴崯顖炲汲閿濆洠鍋撻崷顓熷殌婵炲懏甯楀鍕槻闁活煈鍓氱粋鎺楀Ψ閵夘喖鏅ｇ紓浣瑰礃濞呮洟寮绘繝鍥ㄥ剭闁告洦鍋勯悗濂告煕閹剧宸ラ柛銊ヮ樀瀵偊鎮ч崼婵堛偊
         while (original_blade_points.size() <= static_cast<size_t>(blade_id)) {
             original_blade_points.emplace_back();
             blade_angles_gamma.emplace_back();
@@ -1735,7 +1754,7 @@ namespace cutsim {
             blade_rakeface_vertex.emplace_back();
         }
 
-        // 清空当前切削刃的数据
+        // 濠电偞鎸搁幊鎰板煘閺嶎兙浜归柟鎯у暱椤ゅ懘鏌涢幒鎴炴悙濠⒀勭洴瀹曟岸宕橀鍛殸闂佽桨鑳舵晶妤€鐣?
         original_blade_points[blade_id].clear();
         blade_angles_gamma[blade_id].clear();
         blade_angles_alpha[blade_id].clear();
@@ -1751,7 +1770,7 @@ namespace cutsim {
             return 0;
         }
 
-        // 临时存储所有读取的点
+        // 婵炴垶鎸搁悺銊ヮ渻閸屾壕鍋撳☉娅亪宕戝澶婄闁逞屽墴瀵灚寰勬惔顔兼闂佸憡鐟﹂悧婊冣枔閹达附鍊?
         std::vector<GLVertex> temp_points;
         std::vector<double> temp_gamma;
         std::vector<double> temp_alpha;
@@ -1762,16 +1781,16 @@ namespace cutsim {
         while (!in.atEnd()) {
             std::string line = in.readLine().toStdString();
             std::istringstream iss(line);
-            std::vector<double> values;  // 临时存储当前行的所有数值
+            std::vector<double> values;  // 婵炴垶鎸搁悺銊ヮ渻閸屾壕鍋撳☉娅亪宕戝鍫涗汗闁规儳鍟块·鍛存偠濞戞鐏辨繛鍫熷灴楠炲秹鍩€椤掑嫬瀚夊璺侯儐濞堝爼鏌?
             double val;
 
-            // 读取当前行的所有数值到vector中
+            // 闁荤姴娲╅褑銇愰崶顏備汗闁规儳鍟块·鍛存偠濞戞鐏辨繛鍫熷灴楠炲秹鍩€椤掑嫬瀚夊璺侯儐濞堝爼鏌涙繝鍕付闁糕晛鐦塭ctor婵?
             while (iss >> val) {
                 values.push_back(val);
             }
 
-            // 检查是否有至少6列数据（索引0~5）
-            if (values.size() >= 6) {
+            // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕婵″弶鎮傚畷銉╂晜閼恒儳鐣抽梺鐓庡槻閸熷潡鎯?闂佸憡甯楅〃鍡涘汲閻旂厧绠叉い鏇炴缁€鍕磼娓氬灝鐏╃紒?~5闂?
+            if (values.size() >= 12) {
                 temp_points.emplace_back(values[0], values[1], values[2]);
                 temp_gamma.push_back(values[4]);
                 temp_alpha.push_back(values[5]);
@@ -1784,7 +1803,7 @@ namespace cutsim {
         }
         file.close();
 
-        // 计算切削厚度并存储数据
+        // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柛銉戝喚鏉搁梺鍛娚戦懝鍓р偓瑙勫▕閻涱喚鎹勯搹瑙勬喖闂佺琚崝宥夊汲閻旂厧绠?
         for (size_t i = 0; i < temp_points.size(); ++i) {
             original_blade_points[blade_id].push_back(temp_points[i]);
             blade_angles_gamma[blade_id].push_back(temp_gamma[i]);
@@ -1792,16 +1811,16 @@ namespace cutsim {
             blade_rakeface_id[blade_id].push_back(temp_rakeface_id[i]);
             blade_rakeface_vertex[blade_id].push_back(temp_rakeface_vertex[i]);
 
-            // 计算切削厚度
+            // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柛銉戝喚鏉搁梺鍛娚戦懝鍓р偓?
             double cut_thickness = 0.0;
 
             if (blade_id > 0 && original_blade_points.size() > static_cast<size_t>(blade_id - 1) &&
                 !original_blade_points[blade_id - 1].empty()) {
 
-                // 切削速度向量
+                // 闂佸憡甯掑ú銈嗘櫠濞戙垺鐒婚柣鏂垮槻椤斿﹪鏌涘顓炵伌闁?
                 GLVertex velocity_vector(dx, dy, dz);
 
-                // 遍历前一个切削刃的所有相邻点对
+                // 闂備緡鍓欑粔鏉戭啅婵犳艾绀堢€广儱瀚鍗炩槈閹垮啩绨婚柛銊ョ箻瀹曟粍绻濋崒姘扁偓鎾煟閵娿儱顏褍绉瑰鍨緞鐏炲墽銈查梻渚囧弨瀹曠敻宕戦敐鍥ｅ亾?
                 const auto& prev_blade_points = original_blade_points[blade_id - 1];
                 double min_distance = std::numeric_limits<double>::max();
 
@@ -1814,7 +1833,7 @@ namespace cutsim {
                 cut_thickness = min_distance;
             }
             else {
-                // 如果是第一个切削刃或前一个切削刃没有数据，使用默认值
+                // 婵犵鈧啿鈧綊鎮樻径鎰強妞ゆ牗绮犻崕鎴濃槈閹绢垰浜炬繛鎴炴惄娴滄粓宕硅箛娑樼濠电姴鍊搁悗鎾煙鐎涙澧褏濮电粙澶愬焵椤掍胶鈻旀い蹇撳閻庡ジ鏌涢幘绛瑰伐闁搞劌顦埢浠嬪焺閸愨晝鐣抽梺杞拌兌婢ф鐣垫笟鈧弫宥囦沪閻撳簶鏋忛梺娲绘娇閸旀垹鍒掗婊勫闁靛牆鎳夐崑?
                 cut_thickness = (temp_points.size() > i && temp_gamma.size() > i && temp_alpha.size() > i) ?
                     ((i < temp_gamma.size() && i < temp_alpha.size()) ? 0.0 : 0.0) : 0.0;
             }
@@ -1829,36 +1848,36 @@ namespace cutsim {
 
         int blade_id = blade_num;
 
-        // 1. 首先将当前blade_id的点（原始点和偏移点）收集到一个临时容器中
+        // 1. 婵☆偓绲鹃悧鏇㈠储濞戞矮鐒婇柛鈩冾殘缁夊ジ鏌涢幘宕囥€恖ade_id闂佹眹鍔岀€氼噣宕戦敐澶嬫櫖闁割偅绻傞弬褍鈹戦纰卞剳闁稿缍佸畷顏嗕沪閹存帞鍓ㄧ紓浣割槼瀹曠敻宕戦敐澶嬫櫖濠㈣泛顑嗛弳顏堟⒒閸℃顥滈柛鈺佹湰缁嬪鍩€椤掍胶鈻旀い蹇撳暙椤︽煡鏌￠崘顓熺【妞ゆ梹鍔欏畷鎶藉Ω閵堝牆骞€
         std::vector<GLVertex> all_points;
 
-        // 确保blade_id在有效范围内
+        // 缂佺虎鍙庨崰鏇犳崲濮濇笓ade_id闂侀潻璐熼崝宥咃耿娓氣偓瀵偊宕奸敐鍛Ш闂佹悶鍎插娆撳船?
         if (blade_id < 0 || blade_id >= static_cast<int>(original_blade_points.size())) {
-            return; // 无效的blade_id，直接返回
+            return; // 闂佸搫鍟版慨鐢稿疾閵夆晜鍎嶉柛鎺濇懍ade_id闂佹寧绋戦惉鐓幟洪崸妤€绠抽柕澶堝妿缁犳煡鏌?
         }
 
-        // 确保blade_points的大小足够容纳当前blade_id
+        // 缂佺虎鍙庨崰鏇犳崲濮濇笓ade_points闂佹眹鍔岀€氼剟濡甸崶鈺€鐒婇煫鍥ㄨ壘閸犳洖顭块崜浣告瀻妞ゆ梹鍔楅惀顏堝礃閼碱剛歇闂佸憡鎸哥涵绶嘺de_id
         if (blade_points.size() <= static_cast<size_t>(blade_id)) {
             blade_points.resize(blade_id + 1);
         }
 
-        // 处理当前切削刃
+        // 婵犮垼娉涚€氼噣骞冩繝鍛汗闁规儳鍟块·鍛存煕閹烘垶鎼愬褎鐩畷?
         const auto& original_blade = original_blade_points[blade_id];
         auto& current_blade = blade_points[blade_id];
 
-        current_blade.clear(); // 清空当前blade的点
+        current_blade.clear(); // 濠电偞鎸搁幊鎰板煘閺嶎兙浜归柟鎯у暱椤ゅ崑lade闂佹眹鍔岀€氼噣宕?
         current_blade.reserve(original_blade.size());
 
         for (const auto& point : original_blade) {
             GLVertex offset_blade_point;
-            offset_blade_point.x = point.x + center.x; // 累加 x 分量
-            offset_blade_point.y = point.y + center.y; // 累加 y 分量
-            offset_blade_point.z = point.z + center.z; // 累加 z 分量
+            offset_blade_point.x = point.x + center.x; // 缂備線纭搁崹鐗堟叏?x 闂佸憡甯掑Λ婵嬪闯?
+            offset_blade_point.y = point.y + center.y; // 缂備線纭搁崹鐗堟叏?y 闂佸憡甯掑Λ婵嬪闯?
+            offset_blade_point.z = point.z + center.z; // 缂備線纭搁崹鐗堟叏?z 闂佸憡甯掑Λ婵嬪闯?
             current_blade.push_back(offset_blade_point);
         }
 
-        // 添加当前blade的原始点（已加上中心偏移）
-        all_points.reserve(original_blade.size() * 2); // 预分配空间
+        // 濠电儑缍€椤曆勬叏閻愯翰浜归柟鎯у暱椤ゅ崑lade闂佹眹鍔岀€氼剛鏁锝嗗弿閻庯綆鍓欐禒顖炴煥濞戞澧曢柛鎴節瀹曟繈鎮╂潏鈺冩啰婵炴垶鎼╅崢鑲╃紦妤ｅ啫纾婚煫鍥ㄦ长閳哄懏鏅?
+        all_points.reserve(original_blade.size() * 2); // 婵☆偅婢樼€氼剟宕规惔銊︾厐鐎广儱娲犻弫鍕⒒?
         for (const auto& point : current_blade) {
             GLVertex original_point;
             original_point.x = point.x;
@@ -1866,7 +1885,7 @@ namespace cutsim {
             original_point.z = point.z;
             all_points.push_back(original_point);
 
-            // 添加偏移点
+            // 濠电儑缍€椤曆勬叏閻愬搫纾婚煫鍥ㄦ长閳哄懏鍊?
             GLVertex offset_point;
             offset_point.x = original_point.x - dx;
             offset_point.y = original_point.y - dy;
@@ -1874,7 +1893,7 @@ namespace cutsim {
             all_points.push_back(offset_point);
         }
 
-        // 首先找到当前blade所有点的最小和最大坐标值
+        // 婵☆偓绲鹃悧鏇㈠储濞戙垹绠ラ柟顖嗗啰鍘掗悷婊呭閹稿憡鏅堕悤绲de闂佸湱顣介崑鎾绘煛閸繍妲洪柛瀣剁秮閹啴宕熼浣风帛闁诲繐绻愮换鎰板箯娴兼潙瀚夐柍褜鍓氬鍕槻婵炲吋顨婂浠嬪炊瑜夐崑?
         GLVertex min_coord = all_points.empty() ? GLVertex() : all_points[0];
         GLVertex max_coord = all_points.empty() ? GLVertex() : all_points[0];
 
@@ -1888,7 +1907,7 @@ namespace cutsim {
             max_coord.z = std::max(max_coord.z, point.z);
         }
 
-        //允许一定的误差
+        //闂佺绻嬪ù鍥敊韫囨梻鈻旈柍褜鍓涢埀顒冾潐濮樸劌鈻撻幋鐘冲珰妞ゆ牗纰嶉埢?
         min_coord.x = min_coord.x - 0.1 * (max_coord.x - min_coord.x);
         min_coord.y = min_coord.y - 1 * (max_coord.y - min_coord.y);
         min_coord.z = min_coord.z - 0.1 * (max_coord.z - min_coord.z);
@@ -1897,7 +1916,7 @@ namespace cutsim {
         max_coord.y = max_coord.y + 1 * (max_coord.y - min_coord.y);
         max_coord.z = max_coord.z + 0.1 * (max_coord.z - min_coord.z);
 
-        // 构造包围盒的8个顶点
+        // 闂佸搫顑呯€氫即鍩€椤掑倸孝閻庡灚锕㈠畷鍓佲偓闈涙啞绾绢亪鏌?婵炴垶鎼╂禍顏堝Υ婵犲洦鍊?
         bb_points = std::make_tuple(
             GLVertex{ min_coord.x, min_coord.y, min_coord.z }, // 0: min, min, min
             GLVertex{ max_coord.x, min_coord.y, min_coord.z }, // 1: max, min, min
@@ -1910,7 +1929,7 @@ namespace cutsim {
         );
 
 
-        // 使用map来存储每个面ID对应的面信息
+        // 婵炶揪缍€濞夋洟寮ˇ鎻硃闂佸搫顦崕閬嶆偤閵娾晛纾奸柕濠忓濡层劌鈽夐幙鍐ч偗婵炶偐妾篋闁诲海鏁搁幊鎾惰姳閺屻儲鍎嶉柛鏇ㄥ灡濡椼劌菐閸ワ絽澧插ù?
         std::map<int, PlaneInfo> face_map;
 
         planes.clear();
@@ -1919,20 +1938,20 @@ namespace cutsim {
         const auto& face_normals = blade_rakeface_vertex[blade_id];
         const auto& face_points = original_blade_points[blade_id];
 
-        // 遍历所有点，收集面信息
+        // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鐏炴垝鍖栭梺鎸庣☉閺堫剟寮ぐ鎺撯挅闁糕剝绋掑銊デ庨崶锝呭⒉濞?
         for (size_t i = 0; i < face_ids.size(); ++i) {
             int face_id = face_ids[i];
             if (face_map.find(face_id) == face_map.end()) {
-                // 找到一个新的面，创建面信息
+                // 闂佺懓鐏氶崕鎶藉春鐏炲墽鈻旈柍褜鍓氱粙澶愵敂閸涱喚鍘愰梺姹囧妼鐎氭澘顭囨导瀛樻櫖閻忕偠妫勯悘锛勨偓鐐瑰€栧钘夘焽閻楀牏鈹嶉柍鈺佸暕缁?
                 PlaneInfo plane;
                 plane.normal = face_normals[i];
-                // 使用对应的刀刃点作为面上的点
+                // 婵炶揪缍€濞夋洟寮妶鍥ｅ亾閻㈠灚鍤€缂併劍鐓￠幆鍐礋椤愩垻鈧剟鏌涢幒鎴濇殶闁稿绲鹃幏鍛煥閳ь剛鎷归悢鍏碱棃妞ゎ偒鍘鹃悷鎰版煟閵娿儱顏柛?
                 plane.point = face_points[i];
                 face_map[face_id] = plane;
             }
         }
 
-        // 将map中的面信息转换为vector
+        // 闁诲繐绻愰弨鐬恜婵炴垶鎼╅崢鎯р枔閹达附顥堟い顐幒缁诲棝鏌熼褍鐏ユ繛鏉戞楠炴垿锝為锛勵槹vector
         for (const auto& entry : face_map) {
             planes.push_back(entry.second);
         }
@@ -1940,18 +1959,18 @@ namespace cutsim {
     }
 
     void broaching_AptCutterVolume::calculateForceData() {
-        // 清空所有力数据映射
+        // 濠电偞鎸搁幊鎰板煘閺嶎厼绠ラ柍褜鍓熷鍨緞婵犲偆娼濋梺杞拌兌婢ф鐣垫笟鈧浼存偐閼碱剚顔?
         force_map.clear();
 
         int blade_id = blade_num;
 
-        // 获取指定blade_id的切削刃数据
+        // 闂佸吋鍎抽崲鑼躲亹閸ヮ剙绠伴柛銉戝懏姣巄lade_id闂佹眹鍔岀€氼剟宕硅箛娑樼濠电姴鍊搁悗鎾煛娴ｅ搫顣肩€?
         const auto& current_blade = blade_points[blade_id];
         const auto& current_gamma = blade_angles_gamma[blade_id];
         const auto& current_alpha = blade_angles_alpha[blade_id];
         const auto& current_cut_h = blade_cut_h[blade_id];
 
-        // 检查数据是否一致
+        // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕闁哄棛鍠栭獮鎴︻敊閼恒儛锕傛煕濮樺墽绱扮紒鏃€鎸抽幊?
         if (current_blade.size() != current_gamma.size() ||
             current_blade.size() != current_alpha.size() ||
             current_blade.size() != current_cut_h.size()) {
@@ -1960,17 +1979,17 @@ namespace cutsim {
         }
 
         const int max_valid_index = current_blade.size() - 3;
-        if (max_valid_index < 1) { // 至少需要3个点才能计算力
+        if (max_valid_index < 1) { // 闂佺厧鍢查崯鍧楁儍椤栫偞顥嗛柍褜鍓涢幉?婵炴垶鎼╂禍鐐哄磻閿濆绠ョ€广儱鐗嗛崢鎾偣娓氬﹦纾块柣锝咁煼瀹?
             std::cerr << "Not enough points for blade_id " << blade_id << std::endl;
             return;
         }
 
         for (const auto& pair : cut_h) {
-            int inside_index = pair.first;    // 获取inside_index
-            double force_cut_h = pair.second.avg_dmin; // 从结构体中获取平均切削深度
-            int force_cut_positionID = pair.second.node_id; // 从结构体中获取最小边距距离对应节点ID
+            int inside_index = pair.first;    // 闂佸吋鍎抽崲鑼躲亹閸ｅ埖side_index
+            double force_cut_h = pair.second.avg_dmin; // 婵炲濮村ù椋庡垝閵娾晛鍑犻柛鏇ㄤ簽缁夌厧鈽夐幙鍐ㄥ绩妤犵偛绻樺畷锝夊冀瑜旈幐顒勬煕瑜嶅ú銈夊垂韫囨稑绀堝┑鐘插暟缁犳帡骞?
+            int force_cut_positionID = pair.second.node_id; // 婵炲濮村ù椋庡垝閵娾晛鍑犻柛鏇ㄤ簽缁夌厧鈽夐幙鍐ㄥ绩妤犵偛绻樺畷锝夊冀閵婏缚绮柣蹇撶箰缁绘绮╅悢鐑樺磯婵犻潧锕﹂悰鈺冪磼閸屾繍鍤欐い鏇ㄥ枟閹棃寮崶顬繈鏌ｉ幇顕呭劋D
 
-            if (inside_index == 0 || inside_index > max_valid_index) continue; // inside_index=0时，切削厚度存在问题
+            if (inside_index == 0 || inside_index > max_valid_index) continue; // inside_index=0闂佸搫鍟抽鎰濠靛绀嗛柛銉戝喚鏉搁梺鍛娚戦懝鍓р偓鐟扮－閳ь剚绋掗敋婵犫偓椤忓牊鈷掓い鏇楀亾妞?
 
             GLVertex blade_1 = current_blade[inside_index];
             GLVertex blade_2 = current_blade[inside_index + 1];
@@ -1983,35 +2002,35 @@ namespace cutsim {
             fd.force_position_id = force_cut_positionID;
             fd.force_cuth = force_cut_h;
 
-            // 计算切向力 (force_t)
+            // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柛銉戝嫬鈧鏌?(force_t)
             fd.force_t = GLVertex(dx, dy, dz);
-            // 归一化处理
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓本袩闂?
             double length = fd.force_t.norm();
             if (length > 0) {
                 fd.force_t = fd.force_t * (1.0 / length);
             }
 
-            // 计算轴向力 (force_f)
+            // 闁荤姳绶ょ槐鏇㈡偩缂佹ɑ濮滈柡澶嬪灦閸婂鏌?(force_f)
             fd.force_f = GLVertex(point_dx, point_dy, point_dz).cross(fd.force_t);
-            // 归一化处理
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓本袩闂?
             length = fd.force_f.norm();
             if (length > 0) {
                 fd.force_f = fd.force_f * (1.0 / length);
             }
 
-            // 计算径向力 (force_r)
+            // 闁荤姳绶ょ槐鏇㈡偩鐠囧樊鍤楅柛鏇ㄥ亝閸婂鏌?(force_r)
             fd.force_r = GLVertex(0.0, 0.0, 0.0);
-            // 归一化处理
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓本袩闂?
             length = fd.force_r.norm();
             if (length > 0) {
                 fd.force_r = fd.force_r * (1.0 / length);
             }
 
-            // 确保inside_index在有效范围内
+            // 缂佺虎鍙庨崰鏇犳崲濮濓箯side_index闂侀潻璐熼崝宥咃耿娓氣偓瀵偊宕奸敐鍛Ш闂佹悶鍎插娆撳船?
             if (inside_index < static_cast<int>(current_gamma.size()) &&
                 inside_index < static_cast<int>(current_alpha.size()) &&
                 inside_index < static_cast<int>(current_cut_h.size())) {
-                // 计算合力 (force_value)
+                // 闁荤姳绶ょ槐鏇㈡偩婵犳艾瑙﹂柛顐ｇ箓椤?(force_value)
                 //k_fc = 17587 - 29.54 * v_c - 199.7 * current_gamma[inside_index] - 572.45 * current_alpha[inside_index]
                 //    - 469307 * current_cut_h[inside_index] + 6411 * current_gamma[inside_index] * current_cut_h[inside_index] + 21542 * current_alpha[inside_index] * current_cut_h[inside_index];
                 //k_fcn = 16476 + 65 * v_c - 331.1 * current_gamma[inside_index] - 192.68 * current_alpha[inside_index]
@@ -2041,43 +2060,43 @@ namespace cutsim {
                 fd.force_value.z = (fd.k_fc * fd.force_t.z + fd.k_fcn * fd.force_f.z);
             }
 
-            // 记录位置
+            // 闁荤姳鐒﹀妯肩礊瀹ュ棙濯寸€广儱娲ㄩ弸?
             fd.force_position = blade_1;
 
-            // 存入当前切削刃的力数据映射
+            // 闁诲孩绋掗敋闁告瑥妫滈妵鎰板箻閸愬樊鏋€闂佸憡甯掑ú銈嗘櫠濞戙垹绀嗛柛鎰典簼閻ｉ亶鏌涢弮鈧粙鎺楀汲閻旂厧绠叉い鏃囧Г琛奸柣?
             force_map[inside_index] = fd;
         }
 
-        // 将当前切削刃的力数据映射存入angle_force_map
+        // 闁诲繐绻愬Λ妤冪礊鐎ｎ喖绀堢€广儱鎳庨悗濂告煕閹剧宸ラ柛銊ヮ樀閹啴宕熼銏╂綕闂佽桨鑳舵晶妤€鐣垫笟鈧浼存偐閼碱剚顔忛柣搴㈢⊕閿氶柛娆忔懗ngle_force_map
         angle_force_map[blade_id] = force_map;
 
-        // 将angle_force_map存入cutnum_angle_force_map
+        // 闁诲繐绻愰幗纭乬le_force_map闁诲孩绋掗敋闁告瑥鎽秛tnum_angle_force_map
         cutnum_angle_force_map[tool_angle] = angle_force_map;
     }
 
     void broaching_AptCutterVolume::outputForceData(const std::string & output_dir) {
-        // 构造输出文件路径（格式：output_dir/force_data_[tool_angle].txt）
+        // 闂佸搫顑呯€氫即鍩€椤掑倸鞋缂侀鍙冨畷娆撴倻濡崵鈧喖霉閻樺啿鍔堕柣顓熷劤椤曘儵宕熼崜浣侯槱闂佸搫绉堕崢褏妲愰敓鐘虫櫖婵繄娈焧put_dir/force_data_[tool_angle].txt闂?
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(2) << tool_angle;  // 保留2位小数避免文件名过长
+        oss << std::fixed << std::setprecision(2) << tool_angle;  // 婵烇絽娲︾换鍕汲閳?婵炶揪绲界粔鎾儍椤掑嫬鏋佸ù鑲╃節缂傚鏌涜箛鎾缎ｉ柡瀣暞缁傛帞鎹勯悜妯衡偓鎶藉级閳轰焦鍠橀柡?
         std::string file_path = output_dir + "/force_data_" + oss.str() + ".txt";
 
-        // 创建并打开文件（覆盖模式）
+        // 闂佸憡甯楃粙鎴犵磽閹捐崵宓侀柤鎼佹涧閳數鈧鍠掗崑鎾绘煛閸屾碍鐭楁繛鍡愬灲閺佸秹宕奸敐搴㈣埞闂佺儵鏅滈悧妤勫暞閻庢鍠栨蹇曟?
         std::ofstream out_file(file_path);
         if (!out_file.is_open()) {
-            std::cerr << "无法打开输出文件: " << file_path << std::endl;
+            std::cerr << "闂佸搫鍟版慨鐢垫兜閸洖绠ラ柟鎯х－绾惧寮堕崼鐔稿碍闁搞値鍙冨顒勫炊閿旂瓔鍋? " << file_path << std::endl;
             return;
         }
 
-        // 查找当前工具角度对应的力数据
+        // 闂佸搫琚崕鍙夌珶濡￥浜归柟鎯у暱椤ゅ懐鈧鎮堕崕閬嶅矗鐠恒劍鍠嗛柟鐑樺灥椤斿﹪鎮楅悽鍨殌缂併劍鐓￠幆鍐礋椤愩埄娼濋梺杞拌兌婢ф鐣?
         auto angle_it = cutnum_angle_force_map.find(tool_angle);
         if (angle_it != cutnum_angle_force_map.end()) {
-            // 遍历当前角度下所有刀片ID对应的力数据
+            // 闂備緡鍓欑粔鏉戭啅閺勫繈浜归柟鎯у暱椤ゅ懘鎮峰▎鎰瑨閻庣娅曠粙澶屸偓锝庡亜椤ｆ煡鏌￠崼婵愭Ц闁搞劋绶氶幃褔宕查幙鐘绘倵閻㈠灚鍤€缂併劍鐓￠幆鍐礋椤愩埄娼濋梺杞拌兌婢ф鐣?
             for (const auto& blade_pair : angle_it->second) {
                 const int& blade_id = blade_pair.first;
-                // 遍历当前刀片ID下所有力数据
+                // 闂備緡鍓欑粔鏉戭啅閺勫繈浜归柟鎯у暱椤ゅ懘鏌涢幒鍡椾壕闂佺粯顨呭Σ妤ф繛鎴炴尭椤戝棙鏅跺澶婂珘濠㈣泛锕ら～鏃堟煛娴ｅ搫顣肩€?
                 for (const auto& force_pair : blade_pair.second) {
                     const ForceData& fd = force_pair.second;
-                    // 写入：位置x、y、z，力x、y、z，切削厚度，以及各阶数/自由度的振动向量
+                    // 闂佸憡鍔栭悷銉╁矗閸℃稒鏅慨姗嗗亞缁夊绱撻崘顏呮珴闂侀潧妫旂花婊堟煏閸℃洜鐨鹃梺鎸庣☉閼活垱鎱ㄥ婊堟煏閸℃洜鐨介梺闈涙缁ㄦ繈鏌ㄥ☉妯垮闁搞劌绻樺畷婊勭節閸屾俺鈷堥柟鑹版彧鐠侊絿妲愬┑鍥╊浄闁靛鍎遍幐銈夋煕濮橆剙顏俊顖欑窔瀵?闂佺厧顨庢禍鐐哄极鏉堛劍鍎熼柨鏃傚亾閻ｉ亶鏌熼崜鎻掔仩濠殿喒鏅犲畷銉╁箣閿曗偓濞?
                     out_file << fd.force_position.x << "\t"
                         << fd.force_position.y << "\t"
                         << fd.force_position.z << "\t"
@@ -2088,14 +2107,14 @@ namespace cutsim {
                         << fd.k_fc << "\t"
                         << fd.k_fcn << "\t";
 
-                    // 遍历所有阶数和自由度，输出振动向量数据
+                    // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞閹邦厸鏋嗛梺杞扮劍濠㈡﹢骞忔导瀛樺殜妞ゅ繐妫欓弳鐘诲箹鏉堟崘顓虹紒杈ㄧ箖濞煎繘骞橀崘鍙夌様闂佺懓澹婇崹鐗堟叏閳哄懎瑙﹂柟杈剧畱濞呫倝鏌℃担鍝勵暭鐎?
                     for (size_t mode = 0; mode < vibration_vectors.size(); ++mode) {
                         for (size_t dof = 0; dof < vibration_vectors[mode].size(); ++dof) {
                             if (fd.force_position_id < vibration_vectors[mode][dof].size()) {
                                 out_file << vibration_vectors[mode][dof][fd.force_position_id] << "\t";
                             }
                             else {
-                                out_file << "0.0\t";  // 无效索引时填充0
+                                out_file << "0.0\t";  // 闂佸搫鍟版慨鐢稿疾閵壯勵潟闁靛繒濮风粚鍧楁煛閸愵厽纭鹃柨婵堝仱瀹?
                             }
                         }
                     }
@@ -2115,9 +2134,9 @@ namespace cutsim {
         if (it != cutnum_angle_force_map.end()) {
             const auto& angle_force_map = it->second;
             for (const auto& inner_pair : angle_force_map) {
-                int  force_cutnum = inner_pair.first;  // 第二层键（float）
-                const auto& force_map_2 = inner_pair.second;  // ForceData 数据
-                // 遍历force_map计算合力
+                int  force_cutnum = inner_pair.first;  // 缂備焦顨忛崗娑氳姳閳哄啩娌柛宀€鍋為弳娑㈡煥濞戞ɑ缍抣oat闂?
+                const auto& force_map_2 = inner_pair.second;  // ForceData 闂佽桨鑳舵晶妤€鐣?
+                // 闂備緡鍓欑粔鏉戭啅缁尦rce_map闁荤姳绶ょ槐鏇㈡偩婵犳艾瑙﹂柛顐ｇ箓椤?
                 for (const auto& force_pair : force_map_2) {
                     const ForceData& fd = force_pair.second;
                     int inside_index = force_pair.first;
@@ -2128,7 +2147,7 @@ namespace cutsim {
                 }
 
             }
-            // 存储每个角度的合力
+            // 闁诲孩绋掗敋闁稿绉磋闊洤閰ｉ崵瀣偡濞嗘劕绗掗悗瑙勫▕閹啴宕熼锝呪偓銈夋煕?
             angle_total_force[tool_angle] = temp_total_force;
             qDebug() << "temp_total_force.z:" << temp_total_force.z;
         }
@@ -2151,22 +2170,22 @@ namespace cutsim {
         }
     }
     void broaching_AptCutterVolume::outputTotalForceData(const std::string & output_dir) {
-        // 构造输出文件路径（格式：output_dir/total_force_data.txt）
+        // 闂佸搫顑呯€氫即鍩€椤掑倸鞋缂侀鍙冨畷娆撴倻濡崵鈧喖霉閻樺啿鍔堕柣顓熷劤椤曘儵宕熼崜浣侯槱闂佸搫绉堕崢褏妲愰敓鐘虫櫖婵繄娈焧put_dir/total_force_data.txt闂?
         std::string file_path = output_dir + "/total_force_data.txt";
 
-        // 创建并打开文件（覆盖模式）
+        // 闂佸憡甯楃粙鎴犵磽閹捐崵宓侀柤鎼佹涧閳數鈧鍠掗崑鎾绘煛閸屾碍鐭楁繛鍡愬灲閺佸秹宕奸敐搴㈣埞闂佺儵鏅滈悧妤勫暞閻庢鍠栨蹇曟?
         std::ofstream out_file(file_path);
         if (!out_file.is_open()) {
-            std::cerr << "无法打开输出文件: " << file_path << std::endl;
+            std::cerr << "闂佸搫鍟版慨鐢垫兜閸洖绠ラ柟鎯х－绾惧寮堕崼鐔稿碍闁搞値鍙冨顒勫炊閿旂瓔鍋? " << file_path << std::endl;
             return;
         }
 
-        // 遍历angle_total_force的键值对（tool_angle和对应的合力）
+        // 闂備緡鍓欑粔鏉戭啅缁櫞gle_total_force闂佹眹鍔岀€氫即寮銏犵９闁绘挸瀵掗崵鐘绘煥濞戞ɑ绶無ol_angle闂佸憡绮岄懟顖烆敋椤旇姤鍎熼柡鍐ㄥ€归悾閬嶆煕濮橆剛澧曞┑顔肩箻閺?
         for (const auto& pair : angle_total_force) {
             double tool_angle = pair.first;
             const GLVertex& total_force = pair.second;
 
-            // 写入：tool_angle、x、y、z分量（用制表符分隔）
+            // 闂佸憡鍔栭悷銉╁矗閸℃稒鏅慨婵堫殞ol_angle闂侀潧妫旂花娑㈡煏閸℃洜鐨介梺闈涙缁ㄦ繈鏌涢幒鎴烆棦闁革絾妞介弫宥夊醇閵忊剝娈㈤梺鍛婂笚閸庡ジ濡撮崘顏嗙當闁挎洍鍋撻柛銊ラ叄濮婇箖寮幘鍓侇槴
             out_file << tool_angle << "\t"
                 << total_force.x << "\t"
                 << total_force.y << "\t"
@@ -2174,7 +2193,8 @@ namespace cutsim {
         }
 
         out_file.close();
-        std::cout << "total_force数据已输出至: " << file_path << std::endl;
+        std::cout << "total_force闂佽桨鑳舵晶妤€鐣垫担鍓插晠闁肩厧澧庣紙濠氭煕閹达妇绱伴柛? " << file_path << std::endl;
+        angle_total_force.clear();
     }
 
     void broaching_AptCutterVolume::calculateVibration() {
@@ -2199,13 +2219,13 @@ namespace cutsim {
     }
 
     void broaching_AptCutterVolume::updatestockVibrParams() {
-        // 修改为基于模态的参数计算
+        // 婵烇絽娴傞崰妤呭极閸忚偐鈻旈柛婵嗗閸炪劌霉濠婂啫顒㈤懚鈺呮煙椤戣儻鍏屾繛鍫熷灴瀹曪綁宕掑☉娆愵啀闁荤姳绶ょ槐鏇㈡偩?
         vibr_k_eff.resize(vibration_values.size());
         vibr_stock_c.resize(vibration_values.size());
         for (size_t mode = 0; mode < vibration_values.size(); ++mode) {
-            double lambda = vibration_values[mode]; // 特征值
-            double omega = sqrt(lambda);           // 固有频率
-            vibr_stock_c[mode] = 2 * stock_vibr_damping_ratio * omega;   // 模态阻尼
+            double lambda = vibration_values[mode]; // 闂佺粯顨堥幊鎾舵濞戙垹纾?
+            double omega = sqrt(lambda);           // 闂佹悶鍎抽崕銈咃耿娴ｇ櫢绱ｉ柟瀵稿Т閼?
+            vibr_stock_c[mode] = 2 * stock_vibr_damping_ratio * omega;   // 濠碘槅鍨崜婵嬪焵椤戣法绐旀俊顖氭娴?
 
             //std::cerr <<"mode:"<<mode<< ";  lambda=" << lambda<<";  "<< std::endl;
 
@@ -2218,42 +2238,42 @@ namespace cutsim {
             vibr_a6 = dt * (1.0 - vibr_gamma);
             vibr_a7 = vibr_gamma * dt;
             vibr_k_eff[mode] = lambda;
-            //vibr_k_eff[mode] = lambda + vibr_a0 * 1.0 + vibr_a1 * vibr_stock_c[mode]; // 质量矩阵变为1
+            //vibr_k_eff[mode] = lambda + vibr_a0 * 1.0 + vibr_a1 * vibr_stock_c[mode]; // 闁荤姵鍔戦崝鎴﹀闯濞差亝鍎楅柍鍝勬噺閳诲牓鏌涘▎鎯疯偐鎷?
         }
     }
 
     void broaching_AptCutterVolume::calculatestockVibration() {
-        // 获取自由度数量和模态数量
+        // 闂佸吋鍎抽崲鑼躲亹閸ヮ剚鍤婃い蹇撴閺嗙娀骞栨潏楣冩闁哄棛鍠栭弻宀冪疀閹炬潙顏┑鈽嗗灙閸撴繈鍩€椤戣法鍔嶉柡鍡欏枛閺?
         const size_t num_dofs = vibration_vectors[0].size();
         const size_t num_modes = vibration_vectors.size();
 
-        // 初始化当前角度下的振动参数
+        // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宓懐歇闂佸憡鎸哥粔鐑斤綖濡や焦鍎熼柨鏃囨硶閻熸捇鏌ｉ妸銉ヮ仾閻忓繒鍠栧畷婵嬪Ω閵夈儲顥濋梺?
         vibration_q[new_angle].resize(num_modes, 0.0);
         vibration_dq[new_angle].resize(num_modes, 0.0);
         vibration_ddq[new_angle].resize(num_modes, 0.0);
 
-        // 初始化振动参数存储结构[模态]
+        // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥冨妼閻╀線鏌涢弬璇插鐎殿噮鍓熷顐﹀级鐠恒劍鎲奸梺绋胯閸斿海鍒掗妸鈺佸嚑闁告帗鍔曡灒闁斥晛鍟犻崑鎾寸▕?
         current_vibration_q.resize(num_modes);
         next_vibration_q.resize(num_modes);
 
-        // 确保上一时间步力向量大小正确
+        // 缂佺虎鍙庨崰鏇犳崲濮橆厾鈻斿┑鐘辫兌椤忛亶鏌￠崘銊у煟婵☆偄鐏濋～銏ゅΨ閵夈儺娼濋梺鍛婄閸ㄥ潡宕抽悜妯虹窞鐟滃秹鎯冮鈧～銏ゆ晲閸ワ絺鍋?
         if (vibration_f_prev.size() != num_modes) {
             vibration_f_prev.resize(num_modes, 0.0);
         }
 
-        // 临时存储当前时间步每个模态的力
+        // 婵炴垶鎸搁悺銊ヮ渻閸屾壕鍋撳☉娅亪宕戝鍫涗汗闁规儳鍟块·鍛存煛閸愩劎鍩ｆ俊顐㈢仢椤垽濡烽敂鐐栨繛鎴炴惄娴滄繆鍟梺璇″厸閼宠泛鈻撻幋锕€绀?
         std::vector<double> f_current(num_modes, 0.0);
 
-        // 遍历所有模态
+        // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鐎ｅ棔绶氶獮鈧?
         for (size_t mode = 0; mode < num_modes; ++mode) {
             double f_total = 0.0;
             double f_eff_total = 0.0;
 
-            // 遍历所有自由度并累加（改为遍历angle_force_map中的所有力数据）
+            // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鎼粹剝顔囬梺姹囧灩瀹曨剛鈧濞婇悰顕€宕滄担鐑樼劸闂佸憡姊绘刊瀵告濞嗘挸缁╅梺顐ｇ缁€瀣⒑椤掆偓缁夋潙顔忕猾顧磄le_force_map婵炴垶鎼╅崢鎯р枔閹达箑绠ラ柍褜鍓熷鍨緞婵犲偆娼濋梺杞拌兌婢ф鐣垫笟鈧弫?
             for (size_t dof = 0; dof < num_dofs; ++dof) {
-                // 遍历angle_force_map中的每个blade_num对应的force_map
+                // 闂備緡鍓欑粔鏉戭啅缁櫞gle_force_map婵炴垶鎼╅崢鎯р枔閹存粳鎺曠疀鎼淬劌娈漛lade_num闁诲海鏁搁幊鎾惰姳閺屻儲鍎嶉柛鎺濇磯rce_map
                 for (const auto& [blade_num, inner_force_map] : angle_force_map) {
-                    // 遍历当前blade_num对应的所有力数据
+                    // 闂備緡鍓欑粔鏉戭啅閺勫繈浜归柟鎯у暱椤ゅ崑lade_num闁诲海鏁搁幊鎾惰姳閺屻儲鍎嶉柛鏇ㄥ墮椤ｆ煡鏌￠崼婵愭Ц濠殿喖绻樺顐︽偋閸繄銈?
                     for (const auto& [id, fd] : inner_force_map) {
                         const double force_component = [&] {
                             switch (dof) {
@@ -2268,18 +2288,18 @@ namespace cutsim {
                 }
             }
 
-            // 计算等效力
+            // 闁荤姳绶ょ槐鏇㈡偩閼姐倗椹冲璺侯儐濞呭繘鏌?
     //                f_eff_total = f_total + (vibr_a0 * vibration_q[mode] +
     //                                       vibr_a2 * vibration_dq[mode] +
     //                                       vibr_a3 * vibration_ddq[mode])
     //                             + vibr_stock_c[mode] * (vibr_a1 * vibration_q[mode] +
     //                                                   vibr_a4 * vibration_dq[mode] +
     //                                                   vibr_a5 * vibration_ddq[mode]);
-            // 计算等效力
+            // 闁荤姳绶ょ槐鏇㈡偩閼姐倗椹冲璺侯儐濞呭繘鏌?
             f_eff_total = f_total;
 
-            double relaxation_factor = 0.7; // 松弛因子，0-1之间
-            // 更新振动参数（存储各自由度之和）
+            double relaxation_factor = 0.7; // 闂佸搫顦伴崕宕囨闁秴鐐婇柣妯垮皺閹藉秹鏌?-1婵炴垶鏌ㄩ澶娢?
+            // 闂佸搫娲ら悺銊╁蓟婵犲洤绠版い鏍ㄨ壘琚熼梺鍛婄懃閸婂綊寮抽悢鍏兼櫖闁割偅绻勯幗鐘绘煕鐏炶濡奸柟顔兼喘閹虫盯顢旈崱妯绘闁硅壈鎻紓姘辩不閿濆妞界€光偓鐎ｎ剛顦?
             current_vibration_q[mode] = next_vibration_q[mode];
             next_vibration_q[mode] = current_vibration_q[mode] * (1 - relaxation_factor) +
                 (f_eff_total / vibr_k_eff[mode]) * relaxation_factor;
@@ -2297,34 +2317,34 @@ namespace cutsim {
         temp_vibration_vectors = vibration_vectors;
     }
 
-    // 新增计算最大最小值函数
+    // 闂佸搫鍊瑰姗€路閸愵亝濯奸柨娑樺閺嗩剟鏌￠崼姘壕婵犮垹鐖㈤崟顑跨帛闁诲繐绻愮换鎰板焵椤掑倸甯堕柛銈変憾瀵?
     void broaching_AptCutterVolume::calculateStraightness() {
-        // 遍历外层映射（角度）
+        // 闂備緡鍓欑粔鏉戭啅缂佹ê绶為柡宓懏鍕鹃梺鍝勫婵挳鎯冮悩缁樻櫖闁割偓缍嗗锟犲箹鏉堟崘顓虹紒?
         for (const auto& angle_pair : cut_h_map) {
-            double angle = angle_pair.first;  // 角度
-            const auto& blade_map = angle_pair.second;  // 刀片ID映射
+            double angle = angle_pair.first;  // 闁荤喐鐟︾敮鎺斺偓?
+            const auto& blade_map = angle_pair.second;  // 闂佸憡宸婚崑鎾绘煟濡も偓濡叉ェ闂佸搫瀚慨鎾儍?
 
-            // 遍历中层映射（刀片ID）
+            // 闂備緡鍓欑粔鏉戭啅缂佹鈻旀い鎾跺仧濠€鎾煛閸曨厼孝闁汇劎濞€閺佸秹宕煎┑鍡欌偓顒勬煟濡も偓濡叉ェ闂?
             for (const auto& blade_pair : blade_map) {
-                int blade_id = blade_pair.first;  // 刀片ID
-                const auto& point_map = blade_pair.second;  // 点索引映射
+                int blade_id = blade_pair.first;  // 闂佸憡宸婚崑鎾绘煟濡も偓濡叉ェ
+                const auto& point_map = blade_pair.second;  // 闂佺粯鍔曞﹢閬嶅磼閵娿儺鍤曢柡鍥╁枑琛奸柣?
 
-                // 遍历内层映射（点索引）
+                // 闂備緡鍓欑粔鏉戭啅婵犳艾绀冮柛娑卞幘濠€鎾煛閸曨厼孝闁汇劎濞€閺佸秹宕奸姀鐘卞寲缂備椒绌堕崹鍦閳哄懏鏅?
                 for (const auto& point_pair : point_map) {
-                    int point_index = point_pair.first;  // 点索引
-                    double dmin_value = point_pair.second;  // dmin值
+                    int point_index = point_pair.first;  // 闂佺粯鍔曞﹢閬嶅磼閵娿儺鍤?
+                    double dmin_value = point_pair.second;  // dmin闂?
 
-                    // 存储到 straightness_map
-                    // 注意：这里保持相同的三层结构
+                    // 闁诲孩绋掗敋闁稿绉瑰畷?straightness_map
+                    // 濠电偛顦崝宥夊礈娴煎瓨鏅慨妯虹－缁犲綊姊洪幓鎺戭殭缂佺粯宀搁獮鎰媴閻戞銈查梺鍛婅壘閻厧鈻撻幋鐐碘枖濠㈣泛锕﹀﹢瀵哥磽娴ｈ灏伴柣?
                     straightness_map[angle][blade_id][point_index] = dmin_value;
                 }
             }
         }
     }
 
-    // 修改后的函数：输出所有inside_index对应的straightness数据文件
+    // 婵烇絽娴傞崰妤呭极婵傜瑙﹂幖杈剧稻閻ｉ亶鏌涢幋锝呅撻柡鍡欏枛閺佸秴顫濆畷鍥╃倳闂佸憡鍨归崕銈嗘櫠瀹ュ瀚夊┑澶屾箯side_index闁诲海鏁搁幊鎾惰姳閺屻儲鍎嶉柛鎾虫晢raightness闂佽桨鑳舵晶妤€鐣垫笟鈧顒勫炊閿旂瓔鍋?
     void broaching_AptCutterVolume::outputStraightnessData(const std::string & output_dir) {
-        // 收集所有存在的刀具ID和点索引（去重）
+        // 闂佽　鍋撻柛顐ｆ礃閼茬娀鏌熺喊妯轰壕闂佸搫鐗嗛ˇ顖炴偤閵娾晛鎹堕柕濞у嫮鏆犻梺鍛婂坊閸嬫捇鏌涜箛鏆风嵍闂佸憡绮岄惉濂稿磻閿濆洦顫曢柕蹇曞Х缁屽潡鏌ㄥ☉妯煎妤犵偞鎹囬弻灞筋吋韫囨洜顦?
         std::set<int> all_blade_ids;
         std::set<int> all_point_indices;
 
@@ -2342,13 +2362,13 @@ namespace cutsim {
             }
         }
 
-        std::cout << "发现 " << all_blade_ids.size() << " 个刀具ID" << std::endl;
-        std::cout << "发现 " << all_point_indices.size() << " 个点索引" << std::endl;
+        std::cout << "straightness blade ids: " << all_blade_ids.size() << std::endl;
+        std::cout << "straightness point indices: " << all_point_indices.size() << std::endl;
 
-        // 为每个刀具ID和每个点索引组合生成文件
+        // 婵炴垶鎸鹃崕銈夋儊閳╁啰鈻旀い蹇撳閻庮剟鏌涜箛鏆风嵍闂佸憡绮岄張顒勬儊閳╁啰鈻旀い蹇撴娴狀垳绱掓笟鍨仼缂佹墎鏅濈槐鎺楀礋椤愶絽鈧倝鏌ｉ姀銏犳瀾闁搞劍宀稿顒勫炊閿旂瓔鍋?
         for (int blade_id : all_blade_ids) {
             for (int point_index : all_point_indices) {
-                // 检查这个组合是否有数据
+                // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姤缂佺粯鐗楃粙澶愵敂閸℃瑧鐓侀梺鍛婅壘閻楀﹤危閹间礁瑙﹂柨鏃囧Г缁犳帡鏌℃担鍝勵暭鐎?
                 bool has_data = false;
                 for (const auto& angle_pair : straightness_map) {
                     double angle = angle_pair.first;
@@ -2365,25 +2385,25 @@ namespace cutsim {
                 }
 
                 if (!has_data) {
-                    continue;  // 跳过没有数据的组合
+                    continue;  // 闁荤姴鎼悿鍥╂崲閸愩劉鏌﹂柍鈺佸暞缁犳帡鏌℃担鍝勵暭鐎规挷绶氶幆鍐礋椤撶姷鐓侀梺?
                 }
 
-                // 构造输出文件路径（格式：output_dir/blade_[blade_id]_point_[point_index].txt）
+                // 闂佸搫顑呯€氫即鍩€椤掑倸鞋缂侀鍙冨畷娆撴倻濡崵鈧喖霉閻樺啿鍔堕柣顓熷劤椤曘儵宕熼崜浣侯槱闂佸搫绉堕崢褏妲愰敓鐘虫櫖婵繄娈焧put_dir/blade_[blade_id]_point_[point_index].txt闂?
                 std::string file_path = output_dir + "/blade_" + std::to_string(blade_id) +
                     "_point_" + std::to_string(point_index) + ".txt";
 
-                // 创建并打开文件（覆盖模式）
+                // 闂佸憡甯楃粙鎴犵磽閹捐崵宓侀柤鎼佹涧閳數鈧鍠掗崑鎾绘煛閸屾碍鐭楁繛鍡愬灲閺佸秹宕奸敐搴㈣埞闂佺儵鏅滈悧妤勫暞閻庢鍠栨蹇曟?
                 std::ofstream out_file(file_path);
                 if (!out_file.is_open()) {
-                    std::cerr << "无法打开输出文件: " << file_path << std::endl;
-                    continue;  // 跳过当前组合，继续处理下一个
+                    std::cerr << "闂佸搫鍟版慨鐢垫兜閸洖绠ラ柟鎯х－绾惧寮堕崼鐔稿碍闁搞値鍙冨顒勫炊閿旂瓔鍋? " << file_path << std::endl;
+                    continue;  // 闁荤姴鎼悿鍥╂崲閸愵厹浜归柟鎯у暱椤ゅ懐绱撴担绋款仼闁诡喖閰ｉ弫宥呯暆閳ь剟骞嬫搴ｇ＜妞ゆ挾鍎愬Σ閬嶆煟閻愬弶顥欑紒妤€鎳忕粙澶愬焵椤掍胶鈻?
                 }
 
-                // 写入文件头
-                out_file << "# 刀具ID: " << blade_id << " 点索引: " << point_index << std::endl;
-                out_file << "# 角度\t直线度值" << std::endl;
+                // 闂佸憡鍔栭悷銉╁矗閸℃稑妫橀柛銉檮椤愯棄顭?
+                out_file << "# blade_id: " << blade_id << " point_index: " << point_index << std::endl;
+                out_file << "# angle\tstraightness" << std::endl;
 
-                // 遍历所有角度，收集该刀具ID和点索引的数据
+                // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鎼搭喗鍋ラ柟鑹版彧鐠侊絿妲愬┑瀣哗闁割偅娲橀懖鐘绘偣閸ャ儱鍔氶柛銊ょ窔瀹曟绮欓妴銉╂煕濠婂啰鐏遍柛瀣剁悼濡叉劙濮€閻樼數鈹涢梺姹囧妼鐎氼參寮抽悢鐓庣?
                 for (const auto& angle_pair : straightness_map) {
                     double angle = angle_pair.first;
                     const auto& blade_map = angle_pair.second;
@@ -2393,16 +2413,17 @@ namespace cutsim {
                         const auto& point_map = blade_it->second;
                         auto point_it = point_map.find(point_index);
                         if (point_it != point_map.end()) {
-                            // 写入：角度和对应的直线度值
+                            // 闂佸憡鍔栭悷銉╁矗閸℃稒鏅慨妯诲墯濞硷繝骞栨潏鍓х暠闁归攱澹嗛埀顒傛暩閹虫挾鑺遍弻銉﹀剭闁告洦鍘界痪顖滅磼閹呬虎閻庤濞婂畷?
                             out_file << angle << "\t" << point_it->second << std::endl;
                         }
                     }
                 }
 
                 out_file.close();
-                std::cout << "数据已输出至: " << file_path << std::endl;
+                std::cout << "闂佽桨鑳舵晶妤€鐣垫担鍓插晠闁肩厧澧庣紙濠氭煕閹达妇绱伴柛? " << file_path << std::endl;
             }
         }
+        straightness_map.clear();
     }
 #pragma endregion
     //************* milling_AptCutterVolume **************/
@@ -2414,7 +2435,7 @@ namespace cutsim {
         length = 0.0;
         center = GLVertex(0, 0, 0);
         flutelength = 0.0;
-        //初始化运动学参数
+        //闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥庡墰缁犮儵鏌涢弬璇插妞ゆ帞鍠栧畷锝夊磼濞戞瑦顔?
         q_x[0.0] = 0.0;
         dot_q_x[0.0] = 0.0;
         ddot_q_x[0.0] = 0.0;
@@ -2463,51 +2484,51 @@ namespace cutsim {
                 }
             }
         }
-        // 不在任何分段内，返回负值（外部）
+        // 婵炴垶鎸哥粔鏉戯耿椤忓懐顩烽悹浣哥－缁夊潡鏌涢幒鎴烆棡妞ゆ柨鐭傚畷姗€宕崘顏嗩槷闁哄鏅滈弻銊ッ洪弽顐ｅ闁绘柨鐨濋崑鎾舵兜妞嬪海顦╂繝銏ｅ煐閻楃娀宕曢幘顔芥櫖?
         return t.z;
     }
 
     Cutting milling_AptCutterVolume::dist_cd(const GLVertex & p) const {
         Cutting result = { 0.0, NO_COLLISION, 1 };
         result.f = dist(p);
-        // 可根据需要扩展碰撞类型判定
+        // 闂佸憡鐟崹閬嶆偋閹绢喖绠叉い鏇楀亾婵炴挸澧庨幉鐗堟媴閻熸壋鎸呴柣蹇曞仦濞叉粓锝為锕€绠婚柣鎰祷椤箓鏌涢妸銉剰闁搞劎鏅埀?
         return result;
     }
 
     std::vector<std::vector<std::vector<double>>>
         milling_AptCutterVolume::convertTo3DVibrationVectors(const std::vector<std::vector<double>>&pre_vibration_vectors,
             int num_dofs,
-            const std::vector<size_t>&modes_to_read) {  // 修改参数为模态索引列表
+            const std::vector<size_t>&modes_to_read) {  // 婵烇絽娴傞崰妤呭极婵傜鐭楅柛灞剧⊕濞堣泛鈽夐幘璺哄妺閼垛晠鏌熼鑳厡闁稿被鍔岄锝夊即閻愯尙浠氶柣?
         if (pre_vibration_vectors.empty()) {
             return {};
         }
 
-        // 检查数据完整性
+        // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕闁哄棛鍠栭獮鎴︻敊閼测晜娈梺杞扮閻°劑鍩€?
         size_t total_dofs = pre_vibration_vectors[0].size();
         if (total_dofs % num_dofs != 0) {
-            throw std::invalid_argument("总自由度数量不是每个节点自由度数的整数倍");
+            throw std::invalid_argument("total dofs is not divisible by node dofs");
         }
 
-        // 创建三维向量（根据指定模态数量）
+        // 闂佸憡甯楃粙鎴犵磽閹惧鈻斿璺烘湰濡﹪鏌涘顓炵伌闁革絾妞介弫宥夊醇閻斿搫顥戦梺纭咁嚃閸犳鈧灚姘ㄩ埀顒冾潐绾板秷鍟梺璇″厸閻掞箓寮抽悢鍏肩厒闊洢鍎崇粈?
         size_t num_nodes = total_dofs / num_dofs;
         std::vector<std::vector<std::vector<double>>> vibration_vectors(
-            modes_to_read.size(),  // 根据指定模态数量创建
+            modes_to_read.size(),  // 闂佸搫绉烽～澶婄暤娓氣偓楠炴劙宕惰閺嗙増淇婇妤€澧查柍褜鍏涢悞锕傚汲閻斿吋鐓傞煫鍥ㄦ尭閻忥紕鈧?
             std::vector<std::vector<double>>(num_dofs, std::vector<double>(num_nodes))
         );
 
-        // 转换指定模态数据
+        // 闁哄鍎愰崜姘暦閺屻儱绠伴柛銉戝懏姣庡┑鈽嗗灙閸撴繈鍩€椤戣法鍔嶉柡鍡欏枛楠?
         for (size_t i = 0; i < modes_to_read.size(); ++i) {
             size_t mode = modes_to_read[i];
             if (mode >= pre_vibration_vectors.size()) {
-                throw std::invalid_argument("请求的模态阶数超过数据范围");
+                throw std::invalid_argument("requested mode index is out of range");
             }
 
-            // 检查模态数据一致性
+            // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕閼垛晠鏌熼璺ㄥ妽闁哄棛鍠栭獮鎴︻敊閼姐値浼囬梺鐓庡槻閻°劑鍩€?
             if (pre_vibration_vectors[mode].size() != total_dofs) {
-                throw std::invalid_argument("不同模态的特征向量长度不一致");
+                throw std::invalid_argument("mode vector length is inconsistent");
             }
 
-            // 填充数据
+            // 婵犻潧顦介崑鍕储閺嶎厼鏋侀柣妤€鐗嗙粊?
             for (int dof = 0; dof < num_dofs; ++dof) {
                 for (size_t node = 0; node < num_nodes; ++node) {
                     size_t index = node * num_dofs + dof;
@@ -2519,7 +2540,7 @@ namespace cutsim {
         return vibration_vectors;
     }
 
-    // 保留原函数用于向后兼容
+    // 婵烇絽娲︾换鍕汲閳ь剟鏌涘Ο鐓庢瀻闁搞倝浜跺顐﹀箥椤旇姤娈㈡繛瀛樼矊妤犳悂骞冨鍫濊Е閹肩补鈧櫕鍊柣?
     std::vector<std::vector<std::vector<double>>>
         milling_AptCutterVolume::convertTo3DVibrationVectors(const std::vector<std::vector<double>>&pre_vibration_vectors,
             int num_dofs,
@@ -2532,7 +2553,7 @@ namespace cutsim {
     }
 
 
-    //读取切削刃点集
+    //闁荤姴娲╅褑銇愰崶顒€绀嗛柛銉戝喚鏉搁梺鍛婂笒閸熶即宕戦敐澶嬧挅?
     void milling_AptCutterVolume::readTestPointsFromFile(const std::string & filename) {
         original_blade_points.clear();
         std::ifstream file(filename);
@@ -2555,13 +2576,13 @@ namespace cutsim {
 
     int milling_AptCutterVolume::checkConvexity(const GLVertex & a, const GLVertex & b,
         const GLVertex & c, const GLVertex & d) const {
-        // 计算三个连续的边向量叉积符号
+        // 闁荤姳绶ょ槐鏇㈡偩缂佹鈻斿璺侯樀閸ゅ寮堕埡鍐ㄤ户闁汇垹顭烽幆鍐礋椤斿墽褰鹃梺鍛婄閸ㄥ潡宕冲ú顏勭煑濠㈣泛鐫楀┑鍫㈢當闁挎洍鍋撶憸?
         GLVertex ab = b - a;
         GLVertex bc = c - b;
         GLVertex cd = d - c;
         GLVertex da = a - d;
 
-        // 计算法线方向的Z分量
+        // 闁荤姳绶ょ槐鏇㈡偩鐠囨祴鏋栭柡鍥╁Т濞堢娀鏌￠崒婊勫殌闁诡喗绮撻幆鍐礆韫囨稑绀嗛柛鈩冪☉濞?
         double cross1 = ab.cross(bc).z;
         double cross2 = bc.cross(cd).z;
         double cross3 = cd.cross(da).z;
@@ -2594,49 +2615,115 @@ namespace cutsim {
 
     void milling_AptCutterVolume::calculatePosition_balde() {
 
+#ifdef CUTSIM_PROFILE_POSITION_BLADE
         std::chrono::system_clock::time_point start, stop;
         start = std::chrono::system_clock::now();
+#endif
 
-        // 1. 首先将所有点（原始点和偏移点）收集到一个临时容器中
-        blade_points.clear();  // 清空容器
-        blade_points.reserve(original_blade_points.size() * 4); // 预分配空间
+        // 1. 婵☆偓绲鹃悧鏇㈠储濞戞矮鐒婇柛鈩兠。鏌ユ煛閸繍妲洪柛瀣剁秮閺佸秹宕煎┑鍡樻灳婵犳鍠栭鍥磻閿濆妞介悘鐐村灊閻掑﹦绱掓径搴″惞闁稿缍侀弫宥嗗緞鐎ｎ偅姣嗛梻鍌氭濡宕虹仦鍓р枖闁逞屽墯缁嬪顢旈崘顭戞Щ闂佸搫鍟冲▔娑㈩敊閹版澘闂柕濞垮€涢崢?
+        blade_points.clear();  // 濠电偞鎸搁幊鎰板煘閺嶎偀鍋撻崷顓熷殌婵?
+        blade_points.reserve(original_blade_points.size() * 4); // 婵☆偅婢樼€氼剟宕规惔銊︾厐鐎广儱娲犻弫鍕⒒?
 
-        for (auto& point : original_blade_points) {
-            GLVertex center_orign = GLVertex(center.x, center.y, point.z + center.z); // a
-            GLVertex point_orign = point.rotateABC(0.0, 0.0, blade_angle) + center; // b
-            GLVertex point_offset = point.rotateABC(0.0, 0.0, -step + blade_angle) + center - GLVertex(dx, dy, dz); // c
-            GLVertex center_offset = center_orign - GLVertex(dx, dy, dz); // d
+        const GLfloat center_x = center.x;
+        const GLfloat center_y = center.y;
+        const GLfloat center_z = center.z;
+        const GLfloat dx_f = static_cast<GLfloat>(dx);
+        const GLfloat dy_f = static_cast<GLfloat>(dy);
+        const GLfloat dz_f = static_cast<GLfloat>(dz);
+        const GLfloat blade_angle_f = static_cast<GLfloat>(blade_angle);
+        const GLfloat offset_angle_f = static_cast<GLfloat>(blade_angle - step);
+        const GLfloat blade_cos = static_cast<GLfloat>(std::cos(blade_angle_f));
+        const GLfloat blade_sin = static_cast<GLfloat>(std::sin(blade_angle_f));
+        const GLfloat offset_cos = static_cast<GLfloat>(std::cos(offset_angle_f));
+        const GLfloat offset_sin = static_cast<GLfloat>(std::sin(offset_angle_f));
+        auto check_convexity_xy = [](const GLVertex& a, const GLVertex& b,
+            const GLVertex& c, const GLVertex& d) {
+            const double abx = b.x - a.x;
+            const double aby = b.y - a.y;
+            const double bcx = c.x - b.x;
+            const double bcy = c.y - b.y;
+            const double cdx = d.x - c.x;
+            const double cdy = d.y - c.y;
+            const double dax = a.x - d.x;
+            const double day = a.y - d.y;
 
-            // 检查四边形凸性，若为凹则交换b和c的顺序
-            int is_convex = checkConvexity(center_orign, point_orign, point_offset, center_offset);
-            double alpha = 1.0;
-            double beta = 1.0 - alpha;
+            const double cross1 = abx * bcy - aby * bcx;
+            const double cross2 = bcx * cdy - bcy * cdx;
+            const double cross3 = cdx * day - cdy * dax;
+            const double cross4 = dax * aby - day * abx;
+
+            if ((cross1 * cross2 >= 0) &&
+                (cross2 * cross3 >= 0) &&
+                (cross3 * cross4 >= 0)) {
+                return 1;
+            }
+            if ((cross1 * cross2 >= 0) &&
+                (cross2 * cross3 < 0) &&
+                (cross3 * cross4 >= 0)) {
+                return 2;
+            }
+            if ((cross1 * cross2 > 0) &&
+                (cross2 * cross3 < 0) &&
+                (cross3 * cross4 < 0)) {
+                return 3;
+            }
+            if ((cross1 * cross2 >= 0) &&
+                (cross2 * cross3 >= 0) &&
+                (cross3 * cross4 < 0)) {
+                return 4;
+            }
+            return 5;
+            };
+
+        for (const auto& point : original_blade_points) {
+            const GLVertex center_orign(center_x, center_y, point.z + center_z); // a
+            const GLVertex point_orign(
+                point.x * blade_cos - point.y * blade_sin + center_x,
+                point.x * blade_sin + point.y * blade_cos + center_y,
+                point.z + center_z); // b
+            const GLVertex point_offset(
+                point.x * offset_cos - point.y * offset_sin + center_x - dx_f,
+                point.x * offset_sin + point.y * offset_cos + center_y - dy_f,
+                point.z + center_z - dz_f); // c
+            const GLVertex center_offset(center_x - dx_f, center_y - dy_f, point.z + center_z - dz_f); // d
+
+            // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姎婵炲弶鎸诲蹇涙偡閹峰苯鐓傞梺鍛婂灥閹诧繝鍩€椤戭剙绉剁粈澶愭煠濮瑰洤鍔欓悹鎰枛瀹曟瑩鎮烽弶璺ㄤ户婵炲瓨鍤庨崐鏍х暦閻捇鏌涘鍐殸闂佹眹鍔岀€氫即濡存惔銏″劅?
+            const int is_convex = check_convexity_xy(center_orign, point_orign, point_offset, center_offset);
             if (is_convex == 2) {
-                blade_points.push_back(GLVertex(beta * point_orign.x + alpha * center_offset.x, beta * point_orign.y + alpha * center_offset.y, beta * point_orign.z + alpha * center_offset.z));  //d
+                blade_points.push_back(center_offset);  //d
                 blade_points.push_back(point_orign);  //b
                 blade_points.push_back(point_offset);  //c
-                blade_points.push_back(GLVertex(beta * point_offset.x + alpha * center_orign.x, beta * point_offset.y + alpha * center_orign.y, beta * point_offset.z + alpha * center_orign.z));  //a
+                blade_points.push_back(center_orign);  //a
             }
             else {
-                blade_points.push_back(GLVertex(beta * point_orign.x + alpha * center_orign.x, beta * point_orign.y + alpha * center_orign.y, beta * point_orign.z + alpha * center_orign.z));  //a
+                blade_points.push_back(center_orign);  //a
                 blade_points.push_back(point_orign);  //b
                 blade_points.push_back(point_offset);  //c
-                blade_points.push_back(GLVertex(beta * point_offset.x + alpha * center_offset.x, beta * point_offset.y + alpha * center_offset.y, beta * point_offset.z + alpha * center_offset.z));  //d
+                blade_points.push_back(center_offset);  //d
             }
         }
 
-        // 6. 优化包围盒预计算
+        // 6. 婵炴潙鍚嬮敋閻庡灚鐓″畷鐘诲川椤撶喓鍑介梺鐑╂櫆鐢繝銆傞埡鍐╁闁挎稑瀚弳?
         blade_bboxes.clear();
         const size_t total_points = blade_points.size();
-        const size_t bbox_count = (total_points - 8) / 4;
-        blade_bboxes.reserve(bbox_count); // 预分配包围盒空间
+        const size_t bbox_count = (total_points >= 8) ? ((total_points - 4) / 4) : 0;
+        blade_bboxes.reserve(bbox_count); // 婵☆偅婢樼€氼剟宕规惔銊︾厐鐎广儱鎳庨惁鍫曟煕閵夈儺鍤熸繛鎻掓噽缁艾煤椤忓拑绱?
         const double expand_factor = 0.1;
 
-        // 7. 处理每个包围盒
-        for (size_t i = 0; i <= total_points - 8; i += 4) {
+        auto include_bbox_point = [](BoundingBox& bbox, const GLVertex& p) {
+            bbox.min.x = std::min(bbox.min.x, p.x);
+            bbox.min.y = std::min(bbox.min.y, p.y);
+            bbox.min.z = std::min(bbox.min.z, p.z);
+            bbox.max.x = std::max(bbox.max.x, p.x);
+            bbox.max.y = std::max(bbox.max.y, p.y);
+            bbox.max.z = std::max(bbox.max.z, p.z);
+            };
+
+        // 7. 婵犮垼娉涚€氼噣骞冩繝鍌傛帟绠涙惔銊ユ疂闂佸憡鐗曢幊搴∶洪崸妤佸剮?
+        for (size_t i = 0; i + 7 < total_points; i += 4) {
             BoundingBox bbox;
 
-            // 获取8个点的引用，避免重复索引
+            // 闂佸吋鍎抽崲鑼躲亹?婵炴垶鎼╂禍鐐哄磻閿濆鍎嶉柛鏇ㄥ亞缁屽潡鏌ｉ姀鈺冨帨缂佽鲸绻堥弻鍡涘垂椤旂厧璧嬮梻浣瑰絻缁夋挳藝閼碱剚顫曢柕蹇曞Х缁?
             const GLVertex& p1 = blade_points[i];
             const GLVertex& p2 = blade_points[i + 1];
             const GLVertex& p3 = blade_points[i + 2];
@@ -2646,23 +2733,26 @@ namespace cutsim {
             const GLVertex& p7 = blade_points[i + 6];
             const GLVertex& p8 = blade_points[i + 7];
 
-            // 手动计算边界框，比std::min/max更高效
-            // 计算最小值
+            // 闂佸綊娼ч鍛叏閳哄啯濯奸柨娑樺閺嗩剟寮堕崼婵囪础闁哄拋鍋勯々濂稿幢椤撶姷顦┑顕嗙稻閺佸兗d::min/max闂佸搫娲﹂幐鎶芥偟椤曗偓瀵?
+            // 闁荤姳绶ょ槐鏇㈡偩婵犳艾瀚夐柍褜鍓涙禍姝岀疀閹绢垰浜?
             bbox.min.x = p1.x;
             bbox.min.y = p1.y;
             bbox.min.z = p1.z;
+            bbox.max.x = p1.x;
+            bbox.max.y = p1.y;
+            bbox.max.z = p1.z;
 
-            // 最小值
-            bbox.min.x = std::min({ bbox.min.x, p2.x, p3.x, p4.x, p5.x, p6.x, p7.x, p8.x });
-            bbox.min.y = std::min({ bbox.min.y, p2.y, p3.y, p4.y, p5.y, p6.y, p7.y, p8.y });
-            bbox.min.z = std::min({ bbox.min.z, p2.z, p3.z, p4.z, p5.z, p6.z, p7.z, p8.z });
+            // 闂佸搫鐗冮崑鎾绘倶韫囨挾绠伴柍?
+            include_bbox_point(bbox, p2);
+            include_bbox_point(bbox, p3);
+            include_bbox_point(bbox, p4);
+            include_bbox_point(bbox, p5);
+            include_bbox_point(bbox, p6);
+            include_bbox_point(bbox, p7);
+            include_bbox_point(bbox, p8);
 
-            // 最大值
-            bbox.max.x = std::max({ p1.x, p2.x, p3.x, p4.x, p5.x, p6.x, p7.x, p8.x });
-            bbox.max.y = std::max({ p1.y, p2.y, p3.y, p4.y, p5.y, p6.y, p7.y, p8.y });
-            bbox.max.z = std::max({ p1.z, p2.z, p3.z, p4.z, p5.z, p6.z, p7.z, p8.z });
-
-            // 扩展边界框，允许一定的误差
+            // 闂佸搫鐗冮崑鎾愁熆閸棗鍟犻崑?
+            // 闂佸湱顣介弲娑㈡儓瀹ュ棙缍囬柛锔诲幗濞呮洘淇婂Δ鈧Λ瀵告濠靛绀傚ù锝囩摂閸熷懎鈽夐幘顖氫壕闁诲氦顫夊銊モ枔閹寸姵瀚氭い鏍ㄧ閳?
             const double dx = bbox.max.x - bbox.min.x;
             const double dy = bbox.max.y - bbox.min.y;
             const double dz = bbox.max.z - bbox.min.z;
@@ -2682,8 +2772,10 @@ namespace cutsim {
             blade_bboxes.push_back(bbox);
         }
 
+#ifdef CUTSIM_PROFILE_POSITION_BLADE
         stop = std::chrono::system_clock::now();
         qDebug() << "calculatePosition_balde():" << std::chrono::duration<double>(stop - start).count() << "sec.";
+#endif
 
     }
 
@@ -2694,14 +2786,35 @@ namespace cutsim {
 
         force_map.clear();
 
+        auto dotVertex = [](const GLVertex& a, const GLVertex& b) {
+            return static_cast<double>(a.x) * b.x +
+                static_cast<double>(a.y) * b.y +
+                static_cast<double>(a.z) * b.z;
+            };
+        auto vibrationValue = [this](size_t mode, size_t dof, int node_id) {
+            if (mode >= temp_vibration_vectors.size() ||
+                dof >= temp_vibration_vectors[mode].size() ||
+                node_id < 0 ||
+                static_cast<size_t>(node_id) >= temp_vibration_vectors[mode][dof].size()) {
+                return 0.0;
+            }
+            return temp_vibration_vectors[mode][dof][node_id];
+            };
+
+        const int mechanics_angle_index = (std::abs(step) > 1e-12)
+            ? static_cast<int>(std::llround(tool_angle / step))
+            : 0;
+        if (enable_mechanics_map_capture) {
+            mechanics_map_library.removeForAngleBlade(mechanics_angle_index, blade_num);
+        }
 
         for (const auto& pair : cut_h) {
-            int inside_index = pair.first;    // 获取inside_index
-            double force_cut_h = pair.second.avg_dmin; // 从结构体中获取平均切削深度
-            int force_cut_positionID = pair.second.node_id; // 从结构体中获取最小边距距离对应节点ID
+            int inside_index = pair.first;    // 闂佸吋鍎抽崲鑼躲亹閸ｅ埖side_index
+            double force_cut_h = pair.second.avg_dmin; // 婵炲濮村ù椋庡垝閵娾晛鍑犻柛鏇ㄤ簽缁夌厧鈽夐幙鍐ㄥ绩妤犵偛绻樺畷锝夊冀瑜旈幐顒勬煕瑜嶅ú銈夊垂韫囨稑绀堝┑鐘插暟缁犳帡骞?
+            int force_cut_positionID = pair.second.node_id; // 婵炲濮村ù椋庡垝閵娾晛鍑犻柛鏇ㄤ簽缁夌厧鈽夐幙鍐ㄥ绩妤犵偛绻樺畷锝夊冀閵婏缚绮柣蹇撶箰缁绘绮╅悢鐑樺磯婵犻潧锕﹂悰鈺冪磼閸屾繍鍤欐い鏇ㄥ枟閹棃寮崶顬繈鏌ｉ幇顕呭劋D
 
 
-            if (inside_index == 0)continue;//inside_index=0时，切削厚度存在问题
+            if (inside_index == 0)continue;//inside_index=0闂佸搫鍟抽鎰濠靛绀嗛柛銉戝喚鏉搁梺鍛娚戦懝鍓р偓鐟扮－閳ь剚绋掗敋婵犫偓椤忓牊鈷掓い鏇楀亾妞?
 
 
             GLVertex blade_bottom = blade_points[inside_index * 4 + 1];
@@ -2720,51 +2833,140 @@ namespace cutsim {
             fd.force_position_id = force_cut_positionID;
             fd.force_cuth = force_cut_h;
 
-            // 第一步：计算初始力分量
+            // 缂備焦顨忛崗娑氱博閺夋埈娼伴柕澶樺灣缁愭鎮规笟濠勭？闁伙絽顭峰畷姘攽閸♀晜缍忛梺鍛婃⒐缁嬫垿宕规惔銊︾厒?
             double initial_Fr = (force_coefs[3] + force_coefs[0] * force_cut_h) * force_cut_w;
             double initial_Ft = (force_coefs[4] + force_coefs[1] * force_cut_h) * force_cut_w;
             double initial_Fa = (force_coefs[5] + force_coefs[2] * force_cut_h) * force_cut_w;
 
-            // 旋转角度计算
+            // 闂佸搫鍟鍫澝归崱娆愬枂闁圭儤鍨甸濠囨偣娓氬﹦纾块柣?
             GLVertex blade_point = blade_points[inside_index * 4 + 1];
             GLVertex blade_center = blade_points[inside_index * 4];
 
-            // 计算径向力 (force_vr)
+            // 闁荤姳绶ょ槐鏇㈡偩鐠囧樊鍤楅柛鏇ㄥ亝閸婂鏌?(force_vr)
             GLVertex force_vr = blade_point - blade_center;
-            // 归一化处理
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓本袩闂?
             double length = force_vr.norm();
             if (length > 0) {
                 force_vr = force_vr * (1.0 / length);
             }
 
-            // 计算轴向力 (force_va)
+            // 闁荤姳绶ょ槐鏇㈡偩缂佹ɑ濮滈柡澶嬪灦閸婂鏌?(force_va)
             GLVertex force_va = GLVertex(0.0, 0.0, -1.0).rotateCBA(angle.x, angle.y, angle.z);
-            // 归一化处理
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓本袩闂?
             length = force_va.norm();
             if (length > 0) {
                 force_va = force_va * (1.0 / length);
             }
 
-            // 计算切向力 (force_vt)
+            // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柛銉戝嫬鈧鏌?(force_vt)
             GLVertex force_vt = force_va.cross(force_vr);
-            // 归一化处理
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓本袩闂?
             length = force_vt.norm();
             if (length > 0) {
                 force_vt = force_vt * (1.0 / length);
             }
 
-            // 力分量旋转
+            // 闂佸憡姊圭粙鎴﹀垂鎼淬劍鐓傞煫鍥ㄦ⒐椤ュ寮?
             double rotated_Fx = initial_Fr * force_vr.x + initial_Ft * force_vt.x + initial_Fa * force_va.x;
             double rotated_Fy = initial_Fr * force_vr.y + initial_Ft * force_vt.y + initial_Fa * force_va.y;
             double rotated_Fz = initial_Fr * force_vr.z + initial_Ft * force_vt.z + initial_Fa * force_va.z;
 
-            // 第四步：赋值
+            // 缂備焦顨忛崜娆徝洪幘鎰佹桨闁靛鍨崇粣妤呮偣瑜嶉鍛村焵?
             fd.force_value = GLVertex(rotated_Fx, rotated_Fy, rotated_Fz);
 
-            // 记录位置
+            // 闁荤姳鐒﹀妯肩礊瀹ュ棙濯寸€广儱娲ㄩ弸?
             fd.force_position = blade_bottom;
 
-            // 存入force_map
+            if (enable_mechanics_map_capture) {
+                MechanicsMapRecord record;
+                record.tool_angle = tool_angle;
+                record.angle_index = mechanics_angle_index;
+                record.blade_id = blade_num;
+                record.inside_index = inside_index;
+                record.active = force_cut_h > 0.0 && force_cut_positionID >= 0;
+                record.h0 = force_cut_h;
+                record.h_online = force_cut_h;
+                record.w = force_cut_w;
+                record.force_position_id = force_cut_positionID;
+                record.node_id_bottom = pair.second.node_id;
+                record.node_id_up = pair.second.node_id_up >= 0 ? pair.second.node_id_up : pair.second.node_id;
+                record.P0 = pair.second.P0;
+                record.P1 = pair.second.P1;
+                if ((record.P1 - record.P0).norm() <= 1e-12) {
+                    record.P0 = blade_bottom;
+                    record.P1 = blade_up;
+                }
+                record.Q = pair.second.P_min;
+                record.vr = force_vr;
+                record.vt = force_vt;
+                record.va = force_va;
+                record.nominal_force = fd.force_value;
+
+                const GLVertex edge = record.P1 - record.P0;
+                const double edge_norm2 = dotVertex(edge, edge);
+                double tau = 0.0;
+                if (edge_norm2 > 1e-18) {
+                    tau = dotVertex(record.Q - record.P0, edge) / edge_norm2;
+                    tau = std::max(0.0, std::min(1.0, tau));
+                }
+                GLVertex projected = record.P0 + edge * tau;
+                record.n_h = record.Q - projected;
+                if (record.n_h.norm() > 1e-12) {
+                    record.n_h.normalize();
+                }
+                else {
+                    record.n_h = force_vr;
+                }
+
+                const GLVertex directions[3] = { force_vr, force_vt, force_va };
+                for (int row = 0; row < 3; ++row) {
+                    const double components[3] = {
+                        row == 0 ? directions[0].x : (row == 1 ? directions[0].y : directions[0].z),
+                        row == 0 ? directions[1].x : (row == 1 ? directions[1].y : directions[1].z),
+                        row == 0 ? directions[2].x : (row == 1 ? directions[2].y : directions[2].z)
+                    };
+                    const int base = row * 6;
+                    record.Phi0[base + 0] = force_cut_h * force_cut_w * components[0];
+                    record.Phi0[base + 1] = force_cut_h * force_cut_w * components[1];
+                    record.Phi0[base + 2] = force_cut_h * force_cut_w * components[2];
+                    record.Phi0[base + 3] = force_cut_w * components[0];
+                    record.Phi0[base + 4] = force_cut_w * components[1];
+                    record.Phi0[base + 5] = force_cut_w * components[2];
+                    record.dPhi_dh[base + 0] = force_cut_w * components[0];
+                    record.dPhi_dh[base + 1] = force_cut_w * components[1];
+                    record.dPhi_dh[base + 2] = force_cut_w * components[2];
+                    record.dPhi_dh[base + 3] = 0.0;
+                    record.dPhi_dh[base + 4] = 0.0;
+                    record.dPhi_dh[base + 5] = 0.0;
+                }
+                record.Phi_online = record.Phi0;
+
+                const size_t mode_count = temp_vibration_vectors.size();
+                record.S_q.resize(mode_count, 0.0);
+                record.B_force.resize(mode_count * 3, 0.0);
+                for (size_t mode = 0; mode < mode_count; ++mode) {
+                    GLVertex phi_bottom(
+                        vibrationValue(mode, 0, record.node_id_bottom),
+                        vibrationValue(mode, 1, record.node_id_bottom),
+                        vibrationValue(mode, 2, record.node_id_bottom));
+                    GLVertex phi_up(
+                        vibrationValue(mode, 0, record.node_id_up),
+                        vibrationValue(mode, 1, record.node_id_up),
+                        vibrationValue(mode, 2, record.node_id_up));
+                    GLVertex phi_interp = phi_bottom * (1.0 - tau) + phi_up * tau;
+                    record.S_q[mode] = dotVertex(record.n_h, phi_interp);
+                    record.B_force[mode * 3 + 0] = vibrationValue(mode, 0, record.force_position_id);
+                    record.B_force[mode * 3 + 1] = vibrationValue(mode, 1, record.force_position_id);
+                    record.B_force[mode * 3 + 2] = vibrationValue(mode, 2, record.force_position_id);
+                }
+
+                mechanics_map_library.angle_step = step;
+                mechanics_map_library.modal_count = mode_count;
+                mechanics_map_library.theta_f = force_coefs;
+                mechanics_map_library.addOrReplace(record);
+            }
+
+            // 闁诲孩绋掗敋闁告瑥鏀rce_map
             force_map[inside_index] = fd;
         }
         angle_force_map[blade_num] = force_map;
@@ -2779,27 +2981,27 @@ namespace cutsim {
         std::chrono::system_clock::time_point start, stop;
         start = std::chrono::system_clock::now();
 
-        // 构造输出文件路径（格式：output_dir/force_data_[tool_angle].txt）
+        // 闂佸搫顑呯€氫即鍩€椤掑倸鞋缂侀鍙冨畷娆撴倻濡崵鈧喖霉閻樺啿鍔堕柣顓熷劤椤曘儵宕熼崜浣侯槱闂佸搫绉堕崢褏妲愰敓鐘虫櫖婵繄娈焧put_dir/force_data_[tool_angle].txt闂?
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(2) << tool_angle;  // 保留2位小数避免文件名过长
+        oss << std::fixed << std::setprecision(2) << tool_angle;  // 婵烇絽娲︾换鍕汲閳?婵炶揪绲界粔鎾儍椤掑嫬鏋佸ù鑲╃節缂傚鏌涜箛鎾缎ｉ柡瀣暞缁傛帞鎹勯悜妯衡偓鎶藉级閳轰焦鍠橀柡?
         std::string file_path = output_dir + "/force_data_" + oss.str() + ".txt";
 
-        // 创建并打开文件（覆盖模式）
+        // 闂佸憡甯楃粙鎴犵磽閹捐崵宓侀柤鎼佹涧閳數鈧鍠掗崑鎾绘煛閸屾碍鐭楁繛鍡愬灲閺佸秹宕奸敐搴㈣埞闂佺儵鏅滈悧妤勫暞閻庢鍠栨蹇曟?
         std::ofstream out_file(file_path);
         if (!out_file.is_open()) {
-            std::cerr << "无法打开输出文件: " << file_path << std::endl;
+            std::cerr << "闂佸搫鍟版慨鐢垫兜閸洖绠ラ柟鎯х－绾惧寮堕崼鐔稿碍闁搞値鍙冨顒勫炊閿旂瓔鍋? " << file_path << std::endl;
             return;
         }
 
         for (const auto& inner_pair : angle_force_map) {
-            int force_cutnum = inner_pair.first;  // 刀刃数
-            const auto& force_map_2 = inner_pair.second;  // ForceData 数据
+            int force_cutnum = inner_pair.first;  // 闂佸憡宸婚崑鎾绘煕閹烘垵鏆為柡?
+            const auto& force_map_2 = inner_pair.second;  // ForceData 闂佽桨鑳舵晶妤€鐣?
 
-            // 遍历force_map_2，写入每个刀刃点的位置和力数据
+            // 闂備緡鍓欑粔鏉戭啅缁尦rce_map_2闂佹寧绋戦懟顖炲疮閹捐绀傞柕澶涘濡层劌鈽夐幙鍐х盎闁搞劋绶氬畷姘跺礃椤忓嫪鍖栭梺姹囧妼鐎氼亞绱為崨顖滅＞妞ゆ柨鍚嬬€氭煡鏌涢弮鈧粙鎺楀汲閻旂厧绠?
             for (const auto& force_pair : force_map_2) {
                 int inside_index = force_pair.first;
                 const ForceData& fd = force_pair.second;
-                // 写入：刀刃数、内部索引、位置x、y、z，力x、y、z，切削厚度，以及各阶数/自由度的振动向量
+                // 闂佸憡鍔栭悷銉╁矗閸℃稒鏅慨姗嗗墮閻庮剟鏌涢幒鎴濇殲闁哄棛鍠栨俊瀛樻媴缁嬫寧鏆ラ梻渚囧枔閸斿酣宕掗妸銉殨闁哄洦菤閸嬫挻鎷呮搴Ｐ㈢紓鍌氬暟閺呮娊鏌曢崱鏇犵毥闂侀潧妫旂花婵嬫煥濞戞瀚板┑顔肩床闂侀潧妫旂花婊堟煏閸℃洜鐨鹃梺鎸庣☉閼活垶宕硅箛娑樼濠电姴鍊哥悮閬嶅箹鏉堟崘顓虹紒杈ㄧ箖缁傛帡濡烽妷銉﹀皨闂佸憡鑹剧€氭澘螣娓氣偓瀵?闂佺厧顨庢禍鐐哄极鏉堛劍鍎熼柨鏃傚亾閻ｉ亶鏌熼崜鎻掔仩濠殿喒鏅犲畷銉╁箣閿曗偓濞?
                 out_file << fd.force_position.x << "\t"
                     << fd.force_position.y << "\t"
                     << fd.force_position.z << "\t"
@@ -2811,14 +3013,14 @@ namespace cutsim {
                     << fd.force_value.z << "\t"
                     << fd.force_cuth << "\t";
 
-                // 遍历所有阶数和自由度，输出振动向量数据
+                // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞閹邦厸鏋嗛梺杞扮劍濠㈡﹢骞忔导瀛樺殜妞ゅ繐妫欓弳鐘诲箹鏉堟崘顓虹紒杈ㄧ箖濞煎繘骞橀崘鍙夌様闂佺懓澹婇崹鐗堟叏閳哄懎瑙﹂柟杈剧畱濞呫倝鏌℃担鍝勵暭鐎?
                 for (size_t mode = 0; mode < temp_vibration_vectors.size(); ++mode) {
                     for (size_t dof = 0; dof < temp_vibration_vectors[mode].size(); ++dof) {
                         if (fd.force_position_id < temp_vibration_vectors[mode][dof].size()) {
                             out_file << temp_vibration_vectors[mode][dof][fd.force_position_id] << "\t";
                         }
                         else {
-                            out_file << "0.0\t";  // 无效索引时填充0
+                            out_file << "0.0\t";  // 闂佸搫鍟版慨鐢稿疾閵壯勵潟闁靛繒濮风粚鍧楁煛閸愵厽纭鹃柨婵堝仱瀹?
                         }
                     }
                 }
@@ -2827,7 +3029,7 @@ namespace cutsim {
         }
 
         out_file.close();
-        //std::cout << "力数据已输出至: " << file_path << std::endl;
+        //std::cout << "闂佸憡姊圭粙鎺楀汲閻旂厧绠叉い鏃傚帶閸ゆ帡寮堕崼鐔稿碍闁搞値鍙冮幊? " << file_path << std::endl;
 
         stop = std::chrono::system_clock::now();
         qDebug() << "outputForceData():" << std::chrono::duration<double>(stop - start).count() << "sec.";
@@ -2841,9 +3043,9 @@ namespace cutsim {
 
         temp_total_force = GLVertex(0, 0, 0);
         for (const auto& inner_pair : angle_force_map) {
-            int  force_cutnum = inner_pair.first;  // 第二层键（float）
-            const auto& force_map_2 = inner_pair.second;  // ForceData 数据
-            // 遍历force_map计算合力
+            int  force_cutnum = inner_pair.first;  // 缂備焦顨忛崗娑氳姳閳哄啩娌柛宀€鍋為弳娑㈡煥濞戞ɑ缍抣oat闂?
+            const auto& force_map_2 = inner_pair.second;  // ForceData 闂佽桨鑳舵晶妤€鐣?
+            // 闂備緡鍓欑粔鏉戭啅缁尦rce_map闁荤姳绶ょ槐鏇㈡偩婵犳艾瑙﹂柛顐ｇ箓椤?
             for (const auto& force_pair : force_map_2) {
                 const ForceData& fd = force_pair.second;
                 // collected_force_data.push_back(fd);
@@ -2854,7 +3056,7 @@ namespace cutsim {
                 temp_total_force.z += fd.force_value.z;
             }
         }
-        // 存储每个角度的合力
+        // 闁诲孩绋掗敋闁稿绉磋闊洤閰ｉ崵瀣偡濞嗘劕绗掗悗瑙勫▕閹啴宕熼锝呪偓銈夋煕?
         angle_total_force[tool_angle] = temp_total_force;
 
         //stop = std::chrono::system_clock::now();
@@ -2877,24 +3079,24 @@ namespace cutsim {
     }
 
     void milling_AptCutterVolume::outputTotalForceData(const std::string & output_dir) {
-        // 构造输出文件路径（格式：output_dir/total_force_data.txt）
+        // 闂佸搫顑呯€氫即鍩€椤掑倸鞋缂侀鍙冨畷娆撴倻濡崵鈧喖霉閻樺啿鍔堕柣顓熷劤椤曘儵宕熼崜浣侯槱闂佸搫绉堕崢褏妲愰敓鐘虫櫖婵繄娈焧put_dir/total_force_data.txt闂?
         std::ostringstream oss;
-        oss << std::fixed << std::setprecision(2) << tool_angle;  // 保留2位小数避免文件名过长
+        oss << std::fixed << std::setprecision(2) << tool_angle;  // 婵烇絽娲︾换鍕汲閳?婵炶揪绲界粔鎾儍椤掑嫬鏋佸ù鑲╃節缂傚鏌涜箛鎾缎ｉ柡瀣暞缁傛帞鎹勯悜妯衡偓鎶藉级閳轰焦鍠橀柡?
         std::string file_path = output_dir + "/total_force_data_" + oss.str() + ".txt";
 
-        // 创建并打开文件（覆盖模式）
+        // 闂佸憡甯楃粙鎴犵磽閹捐崵宓侀柤鎼佹涧閳數鈧鍠掗崑鎾绘煛閸屾碍鐭楁繛鍡愬灲閺佸秹宕奸敐搴㈣埞闂佺儵鏅滈悧妤勫暞閻庢鍠栨蹇曟?
         std::ofstream out_file(file_path);
         if (!out_file.is_open()) {
-            std::cerr << "无法打开输出文件: " << file_path << std::endl;
+            std::cerr << "闂佸搫鍟版慨鐢垫兜閸洖绠ラ柟鎯х－绾惧寮堕崼鐔稿碍闁搞値鍙冨顒勫炊閿旂瓔鍋? " << file_path << std::endl;
             return;
         }
 
-        // 遍历angle_total_force的键值对（tool_angle和对应的合力）
+        // 闂備緡鍓欑粔鏉戭啅缁櫞gle_total_force闂佹眹鍔岀€氫即寮銏犵９闁绘挸瀵掗崵鐘绘煥濞戞ɑ绶無ol_angle闂佸憡绮岄懟顖烆敋椤旇姤鍎熼柡鍐ㄥ€归悾閬嶆煕濮橆剛澧曞┑顔肩箻閺?
         for (const auto& pair : angle_total_force) {
             double tool_angle = pair.first;
             const GLVertex& total_force = pair.second;
 
-            // 写入：tool_angle、x、y、z分量（用制表符分隔）
+            // 闂佸憡鍔栭悷銉╁矗閸℃稒鏅慨婵堫殞ol_angle闂侀潧妫旂花娑㈡煏閸℃洜鐨介梺闈涙缁ㄦ繈鏌涢幒鎴烆棦闁革絾妞介弫宥夊醇閵忊剝娈㈤梺鍛婂笚閸庡ジ濡撮崘顏嗙當闁挎洍鍋撻柛銊ラ叄濮婇箖寮幘鍓侇槴
             out_file << tool_angle << "\t"
                 << total_force.x << "\t"
                 << total_force.y << "\t"
@@ -2902,9 +3104,9 @@ namespace cutsim {
         }
 
         out_file.close();
-        std::cout << "total_force数据已输出至: " << file_path << std::endl;
+        std::cout << "total_force闂佽桨鑳舵晶妤€鐣垫担鍓插晠闁肩厧澧庣紙濠氭煕閹达妇绱伴柛? " << file_path << std::endl;
 
-        //清除数据
+        //濠电偞鎸搁幊妯衡枍鎼淬劌鏋侀柣妤€鐗嗙粊?
         angle_total_force.clear();
     }
 
@@ -2930,19 +3132,19 @@ namespace cutsim {
     }
 
     void milling_AptCutterVolume::updatestockVibrParams() {
-        // 检查vibration_values是否为空
+        // 濠碘槅鍋€閸嬫捇鏌″畝濠冾仯ibration_values闂佸搫瀚烽崹浼村箚娴ｅ湱鈻旈柧蹇撳帨閺?
         if (vibration_values.empty()) {
             std::cout << "Warning: vibration_values is empty, using default parameters" << std::endl;
 
-            // 使用默认参数初始化
+            // 婵炶揪缍€濞夋洟寮妶鍡╂付婵☆垱顑欓崥鍥煕濞嗗繐鈧綊寮抽悢鐓庣婵犻潧妫妤呮煕?
             vibr_k_eff.resize(1);
             vibr_stock_c.resize(1);
 
-            // 设置默认值
+            // 闁荤姳绀佹晶浠嬫偪閸℃﹩娓舵俊顖涱儥閸氬洭鏌?
             vibr_k_eff[0] = 1.0;
             vibr_stock_c[0] = 2 * stock_vibr_damping_ratio * 1.0;
 
-            // 设置默认的Newmark参数
+            // 闁荤姳绀佹晶浠嬫偪閸℃﹩娓舵俊顖涱儥閸氬洭鏌ｉ妸銉ユewmark闂佸憡鐟ラ崐褰掑汲?
             vibr_a0 = 1 / (vibr_beta * dt * dt);
             vibr_a1 = vibr_gamma / (vibr_beta * dt);
             vibr_a2 = 1.0 / (vibr_beta * dt);
@@ -2955,13 +3157,13 @@ namespace cutsim {
             return;
         }
 
-        // 修改为基于模态的参数计算
+        // 婵烇絽娴傞崰妤呭极閸忚偐鈻旈柛婵嗗閸炪劌霉濠婂啫顒㈤懚鈺呮煙椤戣儻鍏屾繛鍫熷灴瀹曪綁宕掑☉娆愵啀闁荤姳绶ょ槐鏇㈡偩?
         vibr_k_eff.resize(vibration_values.size());
         vibr_stock_c.resize(vibration_values.size());
         for (size_t mode = 0; mode < vibration_values.size(); ++mode) {
-            double lambda = vibration_values[mode]; // 特征值
-            double omega = sqrt(lambda);           // 固有频率
-            vibr_stock_c[mode] = 2 * stock_vibr_damping_ratio * omega;   // 模态阻尼
+            double lambda = vibration_values[mode]; // 闂佺粯顨堥幊鎾舵濞戙垹纾?
+            double omega = sqrt(lambda);           // 闂佹悶鍎抽崕銈咃耿娴ｇ櫢绱ｉ柟瀵稿Т閼?
+            vibr_stock_c[mode] = 2 * stock_vibr_damping_ratio * omega;   // 濠碘槅鍨崜婵嬪焵椤戣法绐旀俊顖氭娴?
 
             //std::cerr <<"mode:"<<mode<< ";  lambda=" << lambda<<";  "<< std::endl;
 
@@ -2974,12 +3176,12 @@ namespace cutsim {
             vibr_a6 = dt * (1.0 - vibr_gamma);
             vibr_a7 = vibr_gamma * dt;
             vibr_k_eff[mode] = lambda;
-            //vibr_k_eff[mode] = lambda + vibr_a0 * 1.0 + vibr_a1 * vibr_stock_c[mode]; // 质量矩阵变为1
+            //vibr_k_eff[mode] = lambda + vibr_a0 * 1.0 + vibr_a1 * vibr_stock_c[mode]; // 闁荤姵鍔戦崝鎴﹀闯濞差亝鍎楅柍鍝勬噺閳诲牓鏌涘▎鎯疯偐鎷?
         }
     }
 
     void milling_AptCutterVolume::initstockVibration() {
-        // 初始化振动参数存储结构[模态]
+        // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥冨妼閻╀線鏌涢弬璇插鐎殿噮鍓熷顐﹀级鐠恒劍鎲奸梺绋胯閸斿海鍒掗妸鈺佸嚑闁告帗鍔曡灒闁斥晛鍟犻崑鎾寸▕?
         temp_vibration_vectors = vibration_vectors;
         const size_t num_modes = vibration_vectors.size();
         vibration_q.clear();
@@ -2997,11 +3199,11 @@ namespace cutsim {
     }
 
     void milling_AptCutterVolume::calculatestockVibration() {
-        // 获取自由度数量和模态数量
+        // 闂佸吋鍎抽崲鑼躲亹閸ヮ剚鍤婃い蹇撴閺嗙娀骞栨潏楣冩闁哄棛鍠栭弻宀冪疀閹炬潙顏┑鈽嗗灙閸撴繈鍩€椤戣法鍔嶉柡鍡欏枛閺?
         const size_t num_dofs = temp_vibration_vectors[0].size();
         const size_t num_modes = temp_vibration_vectors.size();
 
-        // 初始化振动参数存储结构[模态]
+        // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥冨妼閻╀線鏌涢弬璇插鐎殿噮鍓熷顐﹀级鐠恒劍鎲奸梺绋胯閸斿海鍒掗妸鈺佸嚑闁告帗鍔曡灒闁斥晛鍟犻崑鎾寸▕?
         vibration_q.resize(num_modes);
         vibration_dq.resize(num_modes);
         vibration_ddq.resize(num_modes);
@@ -3009,16 +3211,16 @@ namespace cutsim {
         next_vibration_dq.resize(num_modes);
         next_vibration_ddq.resize(num_modes);
 
-        // 遍历所有模态
+        // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鐎ｅ棔绶氶獮鈧?
         for (size_t mode = 0; mode < num_modes; ++mode) {
             double f_total = 0.0;
             double f_eff_total = 0.0;
 
-            // 遍历所有自由度并累加（改为遍历angle_force_map中的所有力数据）
+            // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鎼粹剝顔囬梺姹囧灩瀹曨剛鈧濞婇悰顕€宕滄担鐑樼劸闂佸憡姊绘刊瀵告濞嗘挸缁╅梺顐ｇ缁€瀣⒑椤掆偓缁夋潙顔忕猾顧磄le_force_map婵炴垶鎼╅崢鎯р枔閹达箑绠ラ柍褜鍓熷鍨緞婵犲偆娼濋梺杞拌兌婢ф鐣垫笟鈧弫?
             for (size_t dof = 0; dof < num_dofs; ++dof) {
-                // 遍历angle_force_map中的每个blade_num对应的force_map
+                // 闂備緡鍓欑粔鏉戭啅缁櫞gle_force_map婵炴垶鎼╅崢鎯р枔閹存粳鎺曠疀鎼淬劌娈漛lade_num闁诲海鏁搁幊鎾惰姳閺屻儲鍎嶉柛鎺濇磯rce_map
                 for (const auto& [blade_num, inner_force_map] : angle_force_map) {
-                    // 遍历当前blade_num对应的所有力数据
+                    // 闂備緡鍓欑粔鏉戭啅閺勫繈浜归柟鎯у暱椤ゅ崑lade_num闁诲海鏁搁幊鎾惰姳閺屻儲鍎嶉柛鏇ㄥ墮椤ｆ煡鏌￠崼婵愭Ц濠殿喖绻樺顐︽偋閸繄銈?
                     for (const auto& [id, fd] : inner_force_map) {
                         const double force_component = [&] {
                             switch (dof) {
@@ -3033,19 +3235,19 @@ namespace cutsim {
                 }
             }
 
-            // 计算等效力
+            // 闁荤姳绶ょ槐鏇㈡偩閼姐倗椹冲璺侯儐濞呭繘鏌?
             f_eff_total = f_total + (vibr_a0 * vibration_q[mode] +
                 vibr_a2 * vibration_dq[mode] +
                 vibr_a3 * vibration_ddq[mode])
                 + vibr_stock_c[mode] * (vibr_a1 * vibration_q[mode] +
                     vibr_a4 * vibration_dq[mode] +
                     vibr_a5 * vibration_ddq[mode]);
-            // 计算等效力
+            // 闁荤姳绶ょ槐鏇㈡偩閼姐倗椹冲璺侯儐濞呭繘鏌?
             f_eff_total = f_total;
 
-            double relaxation_factor = 0.7; // 松弛因子，0-1之间
+            double relaxation_factor = 0.7; // 闂佸搫顦伴崕宕囨闁秴鐐婇柣妯垮皺閹藉秹鏌?-1婵炴垶鏌ㄩ澶娢?
 
-            // 更新振动参数（存储各自由度之和）
+            // 闂佸搫娲ら悺銊╁蓟婵犲洤绠版い鏍ㄨ壘琚熼梺鍛婄懃閸婂綊寮抽悢鍏兼櫖闁割偅绻勯幗鐘绘煕鐏炶濡奸柟顔兼喘閹虫盯顢旈崱妯绘闁硅壈鎻紓姘辩不閿濆妞界€光偓鐎ｎ剛顦?
             vibration_q[mode] = next_vibration_q[mode];
             next_vibration_q[mode] = vibration_q[mode] * (1 - relaxation_factor) +
                 (f_eff_total / vibr_k_eff[mode]) * relaxation_factor;
@@ -3056,7 +3258,7 @@ namespace cutsim {
                 + vibr_a6 * vibration_ddq[mode]
                 + vibr_a7 * next_vibration_ddq[mode];
 
-            // 添加边界限制
+            // 濠电儑缍€椤曆勬叏閻愬瓨缍囬柛锔诲幗濞呮洟姊婚崟顒€濮囬柛?
             next_vibration_q[mode] = std::min(next_vibration_q[mode], deform_color_max);
 
             std::cerr << "Mode:" << mode
@@ -3065,40 +3267,40 @@ namespace cutsim {
                 << " vibration_q=" << next_vibration_q[mode]
                 << std::endl;
         }
-        temp_vibration_vectors = vibration_vectors;//初始化，避免占用内存
+        temp_vibration_vectors = vibration_vectors;//闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥囨暩缁€澶愭⒑椤掆偓閻忔繈宕㈤妶澶婄闁绘ê鐏氶弳蹇涙煕閹邦剚鍣归柣?
     }
 
     void milling_AptCutterVolume::outputSurfaceData(const std::string & output_dir) {
-        // 检查map是否为空
+        // 濠碘槅鍋€閸嬫捇鏌″畝濠冪彺ap闂佸搫瀚烽崹浼村箚娴ｅ湱鈻旈柧蹇撳帨閺?
         if (surface_map.empty()) {
-            std::cout << "surface_map 为空，无需输出" << std::endl;
+            std::cout << "surface_map is empty, skip export." << std::endl;
             return;
         }
 
         int success_files = 0;
         int total_points = 0;
 
-        // 遍历map，为每个键创建一个文件
+        // 闂備緡鍓欑粔鏉戭啅缁浛p闂佹寧绋戞總鏃傛嫻閻旀哺鎺曠疀鎼淬劌娈濋梻浣诡儥閸犳牠宕归崡鐑嗗殘閺夌偞澹嗛鍗炩槈閹垮啩绨奸柡瀣暞缁?
         for (const auto& [key, vertices] : surface_map) {
-            // 如果这个键对应的vector为空，跳过
+            // 婵犵鈧啿鈧綊鎮樻径瀣氦婵炲棗閰ｉ崵瀣⒑濞嗘儳鏋涙い鏇ㄥ枟閹棃寮崒娑氭殸vector婵炴垶鎹佸▍锝夊煘閺嶎厽鏅€光偓閸愵亜鍔滈柡?
             if (vertices.empty()) {
                 continue;
             }
 
-            // 构造输出文件路径
+            // 闂佸搫顑呯€氫即鍩€椤掑倸鞋缂侀鍙冨畷娆撴倻濡崵鈧喖霉閻樺啿鍔堕柣顓熷劤椤?
             std::string file_path = output_dir + "/" + std::to_string(key) + ".txt";
 
-            // 打开文件
+            // 闂佺懓鐏氶幐鍝ユ閹达箑妫橀柛銉檮椤?
             std::ofstream out_file(file_path);
             if (!out_file.is_open()) {
-                std::cerr << "无法打开文件: " << file_path << std::endl;
+                std::cerr << "闂佸搫鍟版慨鐢垫兜閸洖绠ラ柟鎯х－绾惧鏌￠崒姘煑婵? " << file_path << std::endl;
                 continue;
             }
 
-            // 设置输出精度
+            // 闁荤姳绀佹晶浠嬫偪閸℃ɑ缍囬柟鎯у暱濮ｅ绱掗钘夊姢閻?
             out_file << std::fixed << std::setprecision(15);
 
-            // 写入该键对应的所有顶点
+            // 闂佸憡鍔栭悷銉╁矗閸℃瑦瀚氶柕澶嗘櫆閺嗘盯鎮楅悽鍨殌缂併劍鐓￠幆鍐礋椤掆偓椤ｆ煡鏌￠崼婵愭█闁靛棗锕幃?
             for (const auto& vertex : vertices) {
                 out_file << vertex.x << " " << vertex.y << " " << vertex.z << std::endl;
             }
@@ -3108,18 +3310,18 @@ namespace cutsim {
             success_files++;
             total_points += vertices.size();
 
-            std::cout << "已输出: " << file_path
-                << " (包含 " << vertices.size() << " 个点)" << std::endl;
+            std::cout << "surface file exported: " << file_path
+                << " (points: " << vertices.size() << ")" << std::endl;
         }
 
-        std::cout << "输出完成，共 " << success_files << " 个文件，"
-            << total_points << " 个顶点" << std::endl;
+        std::cout << "surface export finished: files=" << success_files
+            << " points=" << total_points << std::endl;
 
         surface_map.clear();
     }
 
     void milling_AptCutterVolume::outputVibrationData(const std::string & output_file) {
-        // 生成带时间戳的文件名
+        // 闂佹眹鍨婚崰鎰板垂濮樿鲸鏆滈柨鏃囧Г椤ρ囨⒒閸屾氨鎽犻柛鈺傚灴閹啴宕熼浣衡偓顔济归悩鐑樼【闁?
         static std::string timestamped_file;
         if (timestamped_file.empty()) {
             auto now = std::chrono::system_clock::now();
@@ -3142,28 +3344,28 @@ namespace cutsim {
                 << std::setfill('0') << std::setw(2) << local_time.tm_sec
                 << ".txt";
             timestamped_file = oss.str();
-            std::cout << "创建振动数据文件: " << timestamped_file << std::endl;
+            std::cout << "闂佸憡甯楃粙鎴犵磽閹捐绠版い鏍ㄨ壘琚熼梺杞拌兌婢ф鐣垫笟鈧顒勫炊閿旂瓔鍋? " << timestamped_file << std::endl;
         }
 
-        // 打开输出文件
-        std::ofstream out_file(timestamped_file, std::ios::app); // 使用追加模式
+        // 闂佺懓鐏氶幐鍝ユ閹寸偞缍囬柟鎯у暱濮ｅ鏌￠崒姘煑婵?
+        std::ofstream out_file(timestamped_file, std::ios::app); // 婵炶揪缍€濞夋洟寮妶鍡樹氦闁芥ê顦～锝嗕繆椤栨せ鍋撳畷鍥╊攨
         if (!out_file.is_open()) {
-            std::cerr << "无法打开文件: " << timestamped_file << std::endl;
+            std::cerr << "闂佸搫鍟版慨鐢垫兜閸洖绠ラ柟鎯х－绾惧鏌￠崒姘煑婵? " << timestamped_file << std::endl;
             return;
         }
 
-        // 设置输出精度
+        // 闁荤姳绀佹晶浠嬫偪閸℃ɑ缍囬柟鎯у暱濮ｅ绱掗钘夊姢閻?
         out_file << std::fixed << std::setprecision(15);
 
-        // 写入tool_angle
+        // 闂佸憡鍔栭悷銉╁矗閸炴ol_angle
         out_file << tool_angle;
 
-        // 写入所有next_vibration_q[mode]
+        // 闂佸憡鍔栭悷銉╁矗閸℃稑绠ラ柍褜鍓熷鍨箙缁夊€則_vibration_q[mode]
         for (size_t mode = 0; mode < next_vibration_q.size(); ++mode) {
             out_file << " " << next_vibration_q[mode];
         }
 
-        // 换行
+        // 闂佺懓绠嶉崹濂搞€?
         out_file << std::endl;
 
         out_file.close();
@@ -3178,7 +3380,7 @@ namespace cutsim {
         length = 0.0;
         center = GLVertex(0, 0, 0);
         flutelength = 0.0;
-        //初始化运动学参数
+        //闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥庡墰缁犮儵鏌涢弬璇插妞ゆ帞鍠栧畷锝夊磼濞戞瑦顔?
         q_x[0.0] = 0.0;
         dot_q_x[0.0] = 0.0;
         ddot_q_x[0.0] = 0.0;
@@ -3188,7 +3390,7 @@ namespace cutsim {
         calcBB();
     }
 
-    // 绕x轴旋转点
+    // 缂傚倷鐒﹀鎶藉级閻愯尙鎽犳俊顐㈡濞碱亪顢楅崒姘寲
     GLVertex rotate_x(const GLVertex & p, double angle) {
         double cos_theta = cos(angle);
         double sin_theta = sin(angle);
@@ -3199,7 +3401,7 @@ namespace cutsim {
         return rotated;
     }
 
-    // 绕y轴旋转点
+    // 缂傚倷鐒﹀鎾级閻愯尙鎽犳俊顐㈡濞碱亪顢楅崒姘寲
     GLVertex rotate_y(const GLVertex & p, double angle) {
         double cos_theta = cos(angle);
         double sin_theta = sin(angle);
@@ -3210,7 +3412,7 @@ namespace cutsim {
         return rotated;
     }
 
-    // 绕z轴旋转点
+    // 缂傚倷鐒﹀鐑藉级閻愯尙鎽犳俊顐㈡濞碱亪顢楅崒姘寲
     GLVertex  rotate_z(const GLVertex & p, double angle) {
         float cos_theta = cos(static_cast<float>(angle));
         float sin_theta = sin(static_cast<float>(angle));
@@ -3225,15 +3427,15 @@ namespace cutsim {
         bb.clear();
         if (segments.empty()) return;
 
-        // 计算旋转后的边界盒
-        double max_x = std::numeric_limits<double>::min();
-        double max_y = std::numeric_limits<double>::min();
-        double max_z = std::numeric_limits<double>::min();
+        // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绫嶉悗锝庡幗缁侇噣鏌涘顒佹崳婵炲牊鍨跺蹇涘捶椤撶喐鐝梺?
+        double max_x = std::numeric_limits<double>::lowest();
+        double max_y = std::numeric_limits<double>::lowest();
+        double max_z = std::numeric_limits<double>::lowest();
         double min_x = std::numeric_limits<double>::max();
         double min_y = std::numeric_limits<double>::max();
         double min_z = std::numeric_limits<double>::max();
 
-        // 考虑所有刀具段的最大半径和z范围
+        // 闂佸吋婢橀崯鍐差瀶婵犳艾绠ラ柍褜鍓熷鍨緞婵犲倻鈧剟鏌涜箛娑欐暠妞ゆ柨鐭傞幆鍐礋椤掍椒绮繝銏犵垻閸愩劎锛欓悗鍨緲鐎氼剟骞忛惃鏇㈡煠閻撳骸鏆欐繛?
         double max_radius = 0.0;
         for (const auto& seg : segments) {
             max_radius = std::max(max_radius, std::max(seg.radius1, seg.radius2));
@@ -3241,7 +3443,7 @@ namespace cutsim {
             max_z = std::max(max_z, seg.z_end);
         }
 
-        // 生成边界盒的8个顶点
+        // 闂佹眹鍨婚崰鎰板垂濮橆厽缍囬柛锔诲幗濞呮洟鏌ｉ埡鍌氱婵?婵炴垶鎼╂禍顏堝Υ婵犲洦鍊?
         std::vector<GLVertex> vertices;
         vertices.emplace_back(max_radius, max_radius, min_z);
         vertices.emplace_back(max_radius, max_radius, max_z);
@@ -3252,7 +3454,7 @@ namespace cutsim {
         vertices.emplace_back(-max_radius, -max_radius, min_z);
         vertices.emplace_back(-max_radius, -max_radius, max_z);
 
-        // 旋转所有顶点并找到极值
+        // 闂佸搫鍟鍫澝归崱娑樼闁逞屽墴瀵灚寰勯幇鈹惧亾婵犲洦鍊烽柣鐔稿鐎氭瑩鏌熼崹顐㈠姢闁糕晛鐭傚鍛婃媴缁洖浜?
         for (const auto& v : vertices) {
             GLVertex rotated = rotate_x(v, angle.x);
             rotated = rotate_y(rotated, angle.y);
@@ -3266,7 +3468,7 @@ namespace cutsim {
             min_z = std::min(min_z, static_cast<double>(rotated.z));
         }
 
-        // 添加刀具中心偏移
+        // 濠电儑缍€椤曆勬叏閻愬搫绀嗛柍褜鍓熷畷妤呮憥閸屾繂骞€闂婎偄娲ら崯顐ｇ閸濄儳鐭?
         max_x += center.x + TOLERANCE;
         max_y += center.y + TOLERANCE;
         max_z += center.z + TOLERANCE;
@@ -3274,9 +3476,9 @@ namespace cutsim {
         min_y += center.y - TOLERANCE;
         min_z += center.z - TOLERANCE;
 
-        // 更新边界盒
-        std::cout << "[DEBUG] Bounding Box - max_x: " << max_x << ", max_y: " << max_y << ", max_z: " << max_z << std::endl;
-        std::cout << "[DEBUG] Bounding Box - min_x: " << min_x << ", min_y: " << min_y << ", min_z: " << min_z << std::endl;
+        // 闂佸搫娲ら悺銊╁蓟婵犲啯缍囬柛锔诲幗濞呮洟鏌?
+        //std::cout << "[DEBUG] Bounding Box - max_x: " << max_x << ", max_y: " << max_y << ", max_z: " << max_z << std::endl;
+        //std::cout << "[DEBUG] Bounding Box - min_x: " << min_x << ", min_y: " << min_y << ", min_z: " << min_z << std::endl;
         GLVertex maxpt(max_x, max_y, max_z);
         GLVertex minpt(min_x, min_y, min_z);
         bb.addPoint(maxpt);
@@ -3309,51 +3511,51 @@ namespace cutsim {
                 }
             }
         }
-        // 不在任何分段内，返回负值（外部）
+        // 婵炴垶鎸哥粔鏉戯耿椤忓懐顩烽悹浣哥－缁夊潡鏌涢幒鎴烆棡妞ゆ柨鐭傚畷姗€宕崘顏嗩槷闁哄鏅滈弻銊ッ洪弽顐ｅ闁绘柨鐨濋崑鎾舵兜妞嬪海顦╂繝銏ｅ煐閻楃娀宕曢幘顔芥櫖?
         return t.z;
     }
 
     Cutting digitaltwin_AptCutterVolume::dist_cd(const GLVertex & p) const {
         Cutting result = { 0.0, NO_COLLISION, 1 };
         result.f = dist(p);
-        // 可根据需要扩展碰撞类型判定
+        // 闂佸憡鐟崹閬嶆偋閹绢喖绠叉い鏇楀亾婵炴挸澧庨幉鐗堟媴閻熸壋鎸呴柣蹇曞仦濞叉粓锝為锕€绠婚柣鎰祷椤箓鏌涢妸銉剰闁搞劎鏅埀?
         return result;
     }
 
     std::vector<std::vector<std::vector<double>>>
         digitaltwin_AptCutterVolume::convertTo3DVibrationVectors(const std::vector<std::vector<double>>&pre_vibration_vectors,
             int num_dofs,
-            const std::vector<size_t>&modes_to_read) {  // 修改参数为模态索引列表
+            const std::vector<size_t>&modes_to_read) {  // 婵烇絽娴傞崰妤呭极婵傜鐭楅柛灞剧⊕濞堣泛鈽夐幘璺哄妺閼垛晠鏌熼鑳厡闁稿被鍔岄锝夊即閻愯尙浠氶柣?
         if (pre_vibration_vectors.empty()) {
             return {};
         }
 
-        // 检查数据完整性
+        // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕闁哄棛鍠栭獮鎴︻敊閼测晜娈梺杞扮閻°劑鍩€?
         size_t total_dofs = pre_vibration_vectors[0].size();
         if (total_dofs % num_dofs != 0) {
-            throw std::invalid_argument("总自由度数量不是每个节点自由度数的整数倍");
+            throw std::invalid_argument("total dofs is not divisible by node dofs");
         }
 
-        // 创建三维向量（根据指定模态数量）
+        // 闂佸憡甯楃粙鎴犵磽閹惧鈻斿璺烘湰濡﹪鏌涘顓炵伌闁革絾妞介弫宥夊醇閻斿搫顥戦梺纭咁嚃閸犳鈧灚姘ㄩ埀顒冾潐绾板秷鍟梺璇″厸閻掞箓寮抽悢鍏肩厒闊洢鍎崇粈?
         size_t num_nodes = total_dofs / num_dofs;
         std::vector<std::vector<std::vector<double>>> vibration_vectors(
-            modes_to_read.size(),  // 根据指定模态数量创建
+            modes_to_read.size(),  // 闂佸搫绉烽～澶婄暤娓氣偓楠炴劙宕惰閺嗙増淇婇妤€澧查柍褜鍏涢悞锕傚汲閻斿吋鐓傞煫鍥ㄦ尭閻忥紕鈧?
             std::vector<std::vector<double>>(num_dofs, std::vector<double>(num_nodes))
         );
 
-        // 转换指定模态数据
+        // 闁哄鍎愰崜姘暦閺屻儱绠伴柛銉戝懏姣庡┑鈽嗗灙閸撴繈鍩€椤戣法鍔嶉柡鍡欏枛楠?
         for (size_t i = 0; i < modes_to_read.size(); ++i) {
             size_t mode = modes_to_read[i];
             if (mode >= pre_vibration_vectors.size()) {
-                throw std::invalid_argument("请求的模态阶数超过数据范围");
+                throw std::invalid_argument("requested mode index is out of range");
             }
 
-            // 检查模态数据一致性
+            // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕閼垛晠鏌熼璺ㄥ妽闁哄棛鍠栭獮鎴︻敊閼姐値浼囬梺鐓庡槻閻°劑鍩€?
             if (pre_vibration_vectors[mode].size() != total_dofs) {
-                throw std::invalid_argument("不同模态的特征向量长度不一致");
+                throw std::invalid_argument("mode vector length is inconsistent");
             }
 
-            // 填充数据
+            // 婵犻潧顦介崑鍕储閺嶎厼鏋侀柣妤€鐗嗙粊?
             for (int dof = 0; dof < num_dofs; ++dof) {
                 for (size_t node = 0; node < num_nodes; ++node) {
                     size_t index = node * num_dofs + dof;
@@ -3365,7 +3567,7 @@ namespace cutsim {
         return vibration_vectors;
     }
 
-    // 保留原函数用于向后兼容
+    // 婵烇絽娲︾换鍕汲閳ь剟鏌涘Ο鐓庢瀻闁搞倝浜跺顐﹀箥椤旇姤娈㈡繛瀛樼矊妤犳悂骞冨鍫濊Е閹肩补鈧櫕鍊柣?
     std::vector<std::vector<std::vector<double>>>
         digitaltwin_AptCutterVolume::convertTo3DVibrationVectors(const std::vector<std::vector<double>>&pre_vibration_vectors,
             int num_dofs,
@@ -3378,7 +3580,7 @@ namespace cutsim {
     }
 
 
-    //读取切削刃点集
+    //闁荤姴娲╅褑銇愰崶顒€绀嗛柛銉戝喚鏉搁梺鍛婂笒閸熶即宕戦敐澶嬧挅?
     void digitaltwin_AptCutterVolume::readTestPointsFromFile(const std::string & filename) {
         original_blade_points.clear();
         std::ifstream file(filename);
@@ -3401,13 +3603,13 @@ namespace cutsim {
 
     int digitaltwin_AptCutterVolume::checkConvexity(const GLVertex & a, const GLVertex & b,
         const GLVertex & c, const GLVertex & d) const {
-        // 计算三个连续的边向量叉积符号
+        // 闁荤姳绶ょ槐鏇㈡偩缂佹鈻斿璺侯樀閸ゅ寮堕埡鍐ㄤ户闁汇垹顭烽幆鍐礋椤斿墽褰鹃梺鍛婄閸ㄥ潡宕冲ú顏勭煑濠㈣泛鐫楀┑鍫㈢當闁挎洍鍋撶憸?
         GLVertex ab = b - a;
         GLVertex bc = c - b;
         GLVertex cd = d - c;
         GLVertex da = a - d;
 
-        // 计算法线方向的Z分量
+        // 闁荤姳绶ょ槐鏇㈡偩鐠囨祴鏋栭柡鍥╁Т濞堢娀鏌￠崒婊勫殌闁诡喗绮撻幆鍐礆韫囨稑绀嗛柛鈩冪☉濞?
         double cross1 = ab.cross(bc).z;
         double cross2 = bc.cross(cd).z;
         double cross3 = cd.cross(da).z;
@@ -3448,48 +3650,48 @@ namespace cutsim {
             return;
         }
 
-        // 使用表面中心点和刀具参数计算切削合力方向
-        // 假设surfaceCenter已经通过信号传递到当前对象中
+        // 婵炶揪缍€濞夋洟寮妶鍥ㄥ仒闁靛ň鏅滃銊モ槈閹垮啫骞栫紒娲畺閹瑩鎮烽悧鍫濐伅闂佸憡宸婚崑鎾绘煕韫囨挸妲荤€殿噮鍓熷顐﹀箯瀹€濠傛倎缂備胶濮甸〃鍛村垂韫囨稑绀堝┑鐘插€归崐銈夋煕閺冣偓缁嬫帡寮婚悢鐓庤Е?
+        // 闂佺顑呭ú鈺咁敊閺呭増rfaceCenter閻庤鐡曠亸娆戝垝閿熺姵鐒绘慨妯虹－缁犳牕菐閸ワ絺鍋撻崘鎻掆枏婵炵鍋愭繛鈧柍褜鍓氱敮鎺楀春瀹€鍐︿汗闁规儳鍟块·鍛存倵閻㈡鏀伴柦鏍у缁?
 
-        // 获取刀具中心点和旋转角度
+        // 闂佸吋鍎抽崲鑼躲亹閸ヮ剙绀嗛柍褜鍓熷畷妤呮憥閸屾繂骞€闂婎偄娲ら崯浼村磻閿濆妞介悘鐐靛亾椤ュ寮堕悜鍡楀⒉妞ゎ偅顨嗛幆?
         GLVertex cutter_center = this->center;
         GLVertex cutter_angle = this->angle;
 
-        // 计算从刀具中心到表面中心的方向向量
+        // 闁荤姳绶ょ槐鏇㈡偩缂佹顩烽幖绮光偓宕団偓顒勬煕韫囨碍鑵归柤鍨灱缁犳盯宕橀妸銉у帓闁荤偞绋忛崝鎴濐焽閻楀牏鈻旀い鎾跺仧婵″洭鏌ｉ妸銉ヮ仾闁哄瞼鍠栧畷銉╁箣濠靛洤鈧姊?
         double dx = surfaceCenter.x - cutter_center.x;
         double dy = surfaceCenter.y - cutter_center.y;
         double dz = surfaceCenter.z - cutter_center.z;
 
-        // 计算距离
+        // 闁荤姳绶ょ槐鏇㈡偩閼姐倖宕夋繝闈涚墱閻?
         double distance = sqrt(dx * dx + dy * dy + dz * dz);
 
         if (distance > 0) {
-            // 归一化方向向量
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宥冨妽閻撴瑩鏌涘顓炵仴闁诡喗绮撻弻?
             double dir_x = dx / distance;
             double dir_y = dy / distance;
             double dir_z = dz / distance;
 
-            // 考虑刀具旋转角度的影响
-            // 绕x轴旋转矩阵
+            // 闂佸吋婢橀崯鍐差瀶婵犳艾绀嗛柍褜鍓熷畷妤呮煥鐎ｎ偒妫嗛柡澶屽剱閸撴繈锝炲Δ浣瑰劅闁挎梻鍋撻悾杈╂喐閺夊灝鑸归柟?
+            // 缂傚倷鐒﹀鎶藉级閻愯尙鎽犳俊顐㈡濞碱亪顢楅崒婊冨絹闂?
             double cos_ax = cos(cutter_angle.x);
             double sin_ax = sin(cutter_angle.x);
-            // 绕y轴旋转矩阵
+            // 缂傚倷鐒﹀鎾级閻愯尙鎽犳俊顐㈡濞碱亪顢楅崒婊冨絹闂?
             double cos_ay = cos(cutter_angle.y);
             double sin_ay = sin(cutter_angle.y);
 
-            // 应用旋转变换到方向向量
+            // 闁圭厧鐡ㄥ濠氬极閵堝绫嶉悗锝庡幗缁侇噣鏌涘▎鎯挎垵鐣烽弻銉ョ闁绘鐗婇悡娆撴煕濮橆厼鐏ラ柟顔界矒閺?
             double rotated_y = dir_y * cos_ay - dir_z * sin_ay;
             double rotated_z = dir_y * sin_ay + dir_z * cos_ay;
 
             double rotated_x = dir_x * cos_ax + rotated_z * sin_ax;
             double final_z = -dir_x * sin_ax + rotated_z * cos_ax;
 
-            // 更新旋转后的方向向量
+            // 闂佸搫娲ら悺銊╁蓟婵犲洤绫嶉悗锝庡幗缁侇噣鏌涘顒佹崳婵炲牊鍨垮顒勬偡閻楀牆鈧鏌涘顓炵伌闁?
             dir_x = rotated_x;
             dir_y = rotated_y;
             dir_z = final_z;
 
-            // 重新归一化
+            // 闂備焦褰冪粔鐢稿蓟婵犲懌浜归柟鍝勭Ф椤忛亶鏌?
             double norm = sqrt(dir_x * dir_x + dir_y * dir_y + dir_z * dir_z);
             if (norm > 0) {
                 dir_x /= norm;
@@ -3497,34 +3699,34 @@ namespace cutsim {
                 dir_z /= norm;
             }
 
-            // force_data包含铣刀的切向力、径向力和轴向力
-            // force_data[0]: 切向力 (tangential force)
-            // force_data[1]: 径向力 (radial force)  
-            // force_data[2]: 轴向力 (axial force)
+            // force_data闂佸憡鐗曢幊搴ㄥ箚閸儲鐓ｉ柨婵嗘噹閻庮剟鏌ｉ妸銉ヮ仼闁搞劌绻樺畷銉╁箣濠靛棭娼濋梺闈涙缁€浣烘閻愬搫瑙﹂柟瀛樼箓椤棃鏌涘鍐劮闂佷即浜跺畷銉╁箣濠靛棭娼?
+            // force_data[0]: 闂佸憡甯掑ú銈夊箖濠婂牆绀?(tangential force)
+            // force_data[1]: 閻庡灚婢樼€氼剟骞冨鍫濈?(radial force)  
+            // force_data[2]: 闁哄鍋炲娆撳箖濠婂牆绀?(axial force)
 
-            // 计算刀具坐标系下的力向量
-            // 在刀具坐标系中：
-            // 切向力：垂直于刀具轴线，沿切削方向
-            // 径向力：垂直于刀具轴线，指向刀具中心
-            // 轴向力：沿刀具轴线方向
+            // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柍褜鍓熷畷妤€鐣￠悧鍫㈢▌闂佸搫绉村ú銊╂焾鐎涙鈻旈悗锝庡墯閻ｉ亶鏌涢弮鈧粙鎴﹀箖濠婂牊鐓?
+            // 闂侀潻璐熼崝宀勫垂娓氣偓瀹曟鐣￠悧鍫㈢▌闂佸搫绉村ú銊╂焾鐎涙鈻旀い鎾卞妿缁?
+            // 闂佸憡甯掑ú銈夊箖濠婂牆绀夋繛鎴濈－缁愭鏌涢妸銉モ偓璇裁洪幐搴ｎ洸閹肩补鈧磭鈧剟鏌涜箛鏇熺効闂佹媽浜惀顏堝礌閿涘嫮顦┑鐐茶嫰閻忔繈宕硅箛娑樼濠电姴鍟悡娆撴煕?
+            // 閻庡灚婢樼€氼剟骞冨鍫濈婵炴垵纾粣妤呮煕閵娿儱鈧煤閹稿海顩查幖绮光偓宕団偓顒勬煕韫囨洘鐒块梺鎷屼含閻ヮ亪宕犻敍鍕槷闂佸湱顭堝ú銈夊箖濠婂牆绀嗛柍褜鍓熷畷妤呮憥閸屾繂骞€闂?
+            // 闁哄鍋炲娆撳箖濠婂牆绀夋繛鎴濈－缁愭绻涚仦鐣屼虎闁搞劋绶氬畷妤呮偪椤栫偛褰欑紓浣哄亾鐎笛囧蓟閻旂厧瑙?
 
-            // 首先将力从刀具坐标系转换到世界坐标系
-            // 基于表面中心点方向确定力的分解
+            // 婵☆偓绲鹃悧鏇㈠储濞戞矮鐒婇柛鈩冾殔椤柨霉閻樻煡顎楅柛銊ょ窔瀹曟鐣￠悧鍫㈢▌闂佸搫绉村ú銊╂焾鐎涙ɑ濮滄い鎺嶇鎼村﹪鏌涢幒妤婃殥缂佹锕㈤幃鍓т沪閼恒儳绋勯梺鍝勭Т濞层劑鏌?
+            // 闂佺硶鏅炲銊ц姳椤掑倹鍋橀柕濞炬櫆濡椼劌鈽夐幙鍐ㄥ箹缂佹椽绠栭幃娆戞喆閸曨剛鍘甸梺鍛婄閸ㄥ綊鍨惧Ο灏栧亾鐟欏嫯澹樺┑顔肩箻閹啴宕熼銏⑩偓濠氭偡?
 
-            // 计算刀具轴线方向（假设z轴为刀具轴线）
+            // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柍褜鍓熷畷妤呮偪椤栫偛褰欑紓浣哄亾鐎笛囧蓟閻旂厧瑙﹂柟鎼灣缁€鍕煕鐎ｎ亝绌挎い鏃€妾烽柡澶屽仧缁绘繄鎷归悢鐓庣闁逞屽墴瀹曟鎮块鐐插綑缂備焦鍎崇亸鍛?
             double tool_axis_x = 0.0;
             double tool_axis_y = 0.0;
             double tool_axis_z = 1.0;
 
-            // 应用刀具旋转角度到刀具轴线（使用前面已经定义的变量）
+            // 闁圭厧鐡ㄥ濠氬极閵堝绀嗛柍褜鍓熷畷妤呮煥鐎ｎ偒妫嗛柡澶屽剱閸撴繈锝炲Δ浣瑰劅闁挎洍鍋撻柛鈺佺焸瀹曟岸鍩€椤掑嫬绀傞柣銈庡灦閸欙紕绱掗幆褍鐨＄紒杈ㄧ懄閹峰懐鎹勯妸锔芥闂佸憡鎸哥粔鐟邦焽閺夋鍟呴柤纰卞墰閻ュ懘鎮楃憴鍕叝缂佺姷鍠栭幆鍐礋椤愩垻绉梻浣瑰絻妤犲繒妲?
 
-            // 旋转刀具轴线
+            // 闂佸搫鍟鍫澝归崱娑樼闁逞屽墴瀹曟鎮块鐐插綑缂?
             double rotated_axis_y = tool_axis_y * cos_ay - tool_axis_z * sin_ay;
             double rotated_axis_z = tool_axis_y * sin_ay + tool_axis_z * cos_ay;
             double rotated_axis_x = tool_axis_x * cos_ax + rotated_axis_z * sin_ax;
             double final_axis_z = -tool_axis_x * sin_ax + rotated_axis_z * cos_ax;
 
-            // 归一化刀具轴线
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓啰鈧剟鏌涜箛鏇熺効闂佹媽浜惀?
             double axis_norm = sqrt(rotated_axis_x * rotated_axis_x + rotated_axis_y * rotated_axis_y + final_axis_z * final_axis_z);
             if (axis_norm > 0) {
                 rotated_axis_x /= axis_norm;
@@ -3532,13 +3734,13 @@ namespace cutsim {
                 final_axis_z /= axis_norm;
             }
 
-            // 计算切向方向（垂直于刀具轴线，指向表面中心点方向在垂直于轴线平面上的投影）
+            // 闁荤姳绶ょ槐鏇㈡偩婵犳艾绀嗛柛銉戝嫬鈧鏌￠崒婊勫殌闁诡喗绮撻弫宥夊醇濠靛牃鍋撻銏″剮缂傚牏濮烽懝楣冩煕閹哄棗浜鹃梺绋跨箳閺屽鏌婃潏鈺冩／闁告牭绱曠粈澶愭煙缁嬫寧鎼愰柟顔界矌閹即濡搁埡鍌涖€冩繛鎴炴惄閸樿偐缂撴ィ鍐╁€烽悷娆忓閻撴瑩鏌涘顓炵仴婵犫偓椤忓牆鍨傞柛灞剧矋缁绢垰霉濠婂啯鍞夐梺鎷屼含閻ヮ亪宕归鈧幐顒勬⒒閸偅绶氱紒妤€鍊块幆鍐礋椤掆偓椤瞼鎲搁悧鍫濇暰缂?
             double projection_dot = dir_x * rotated_axis_x + dir_y * rotated_axis_y + dir_z * final_axis_z;
             double proj_x = dir_x - projection_dot * rotated_axis_x;
             double proj_y = dir_y - projection_dot * rotated_axis_y;
             double proj_z = dir_z - projection_dot * final_axis_z;
 
-            // 归一化切向方向
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓啰鈧ジ鏌涘顓炵仸闁哄瞼鍠栧畷?
             double tangential_norm = sqrt(proj_x * proj_x + proj_y * proj_y + proj_z * proj_z);
             if (tangential_norm > 0) {
                 proj_x /= tangential_norm;
@@ -3546,12 +3748,12 @@ namespace cutsim {
                 proj_z /= tangential_norm;
             }
 
-            // 计算径向方向（垂直于刀具轴线和切向方向）
+            // 闁荤姳绶ょ槐鏇㈡偩鐠囧樊鍤楅柛鏇ㄥ亝閸婂鏌￠崒婊勫殌闁诡喗绮撻弫宥夊醇濠靛牃鍋撻銏″剮缂傚牏濮烽懝楣冩煕閹哄棗浜鹃梺绋跨箳閺屽鏌婃潏鈺冩／闁割煈鍠楃€氭煡鏌涢幒鎴炴悙闁诡喗绮撳顒勬偡閻楀牆鈧鏌?
             double radial_x = rotated_axis_y * proj_z - rotated_axis_z * proj_y;
             double radial_y = rotated_axis_z * proj_x - rotated_axis_x * proj_z;
             double radial_z = rotated_axis_x * proj_y - rotated_axis_y * proj_x;
 
-            // 归一化径向方向
+            // 閻熸粎澧楃敮濠勭博閹绢喖绀岄柡宓懐鐛梺鍛婄閸ㄥ爼寮婚悢鐓庤Е?
             double radial_norm = sqrt(radial_x * radial_x + radial_y * radial_y + radial_z * radial_z);
             if (radial_norm > 0) {
                 radial_x /= radial_norm;
@@ -3559,24 +3761,24 @@ namespace cutsim {
                 radial_z /= radial_norm;
             }
 
-            // 将切向力、径向力和轴向力分解到世界坐标系
+            // 闁诲繐绻愬Λ妤呭垂韫囨稑瑙﹂柟瀛樼箓椤棃鏌曢崱鏇狀槮缂佸墎鍋ゅ畷銉╁箣濠靛棭娼濋梺鍛婄矊閻線鏌婇柆宥呰Е闁瑰瓨绻傞～鏃堟煕閹烘垶顥＄悮娆撴煕閹烘鏆掔紒妤侊耿閹墽浠﹂懞銉х▌闂佸搫绉村ú銊╂焾?
             force_xyz[0] = force_data[0] * proj_x + force_data[1] * radial_x + force_data[2] * rotated_axis_x;  // Fx
             force_xyz[1] = force_data[0] * proj_y + force_data[1] * radial_y + force_data[2] * rotated_axis_y;  // Fy
             force_xyz[2] = force_data[0] * proj_z + force_data[1] * radial_z + force_data[2] * final_axis_z;    // Fz
 
-            // 输出调试信息
-            qDebug() << "Force Position: (" << surfaceCenter.x << ", " << surfaceCenter.y << ", " << surfaceCenter.z << ")";
-            qDebug() << "Force Direction: (" << dir_x << ", " << dir_y << ", " << dir_z << ")";
-            qDebug() << "Total Force: (" << force_xyz[0] << ", " << force_xyz[1] << ", " << force_xyz[2] << ")";
-            qDebug() << "Tangential Direction: (" << proj_x << ", " << proj_y << ", " << proj_z << ")";
-            qDebug() << "Radial Direction: (" << radial_x << ", " << radial_y << ", " << radial_z << ")";
-            qDebug() << "Tool Axis Direction: (" << rotated_axis_x << ", " << rotated_axis_y << ", " << final_axis_z << ")";
+            // 闁哄鐗婇幐鎼佸吹椤撶姵瀚柛鎰靛幘濡茬菐閸ワ絽澧插ù?
+            //qDebug() << "Force Position: (" << surfaceCenter.x << ", " << surfaceCenter.y << ", " << surfaceCenter.z << ")";
+            //qDebug() << "Force Direction: (" << dir_x << ", " << dir_y << ", " << dir_z << ")";
+            //qDebug() << "Total Force: (" << force_xyz[0] << ", " << force_xyz[1] << ", " << force_xyz[2] << ")";
+            //qDebug() << "Tangential Direction: (" << proj_x << ", " << proj_y << ", " << proj_z << ")";
+            //qDebug() << "Radial Direction: (" << radial_x << ", " << radial_y << ", " << radial_z << ")";
+            //qDebug() << "Tool Axis Direction: (" << rotated_axis_x << ", " << rotated_axis_y << ", " << final_axis_z << ")";
 
 
 
         }
         else {
-            // 当刀具中心与表面中心重合时，使用默认力方向
+            // 閻熸粎澧楅幐鎼佸垂娓氣偓瀹曟鎽庨崒婵嗗箑闂婎偄娲ら崯鈺冪箔瀹€鈧幃浼村Ω閳哄倹銆冩繛鎴炴惄閸樿偐缂撴ィ鍐╃厒鐎广儱鎳忛崐銈夋煛閸愵収鍟囩紒杈ㄧ箖閹峰懐鎹勯妸锔芥婵帗绋掗…鍫ヮ敇婵犳艾绀夋繛鎴炵懄閻撴瑩鏌?
             force_xyz[0] = force_data[0];
             force_xyz[1] = force_data[1];
             force_xyz[2] = force_data[2];
@@ -3588,19 +3790,19 @@ namespace cutsim {
     }
 
     void digitaltwin_AptCutterVolume::updatestockVibrParams() {
-        // 检查vibration_values是否为空
+        // 濠碘槅鍋€閸嬫捇鏌″畝濠冾仯ibration_values闂佸搫瀚烽崹浼村箚娴ｅ湱鈻旈柧蹇撳帨閺?
         if (vibration_values.empty()) {
             std::cout << "Warning: vibration_values is empty, using default parameters" << std::endl;
 
-            // 使用默认参数初始化
+            // 婵炶揪缍€濞夋洟寮妶鍡╂付婵☆垱顑欓崥鍥煕濞嗗繐鈧綊寮抽悢鐓庣婵犻潧妫妤呮煕?
             vibr_k_eff.resize(1);
             vibr_stock_c.resize(1);
 
-            // 设置默认值
+            // 闁荤姳绀佹晶浠嬫偪閸℃﹩娓舵俊顖涱儥閸氬洭鏌?
             vibr_k_eff[0] = 1.0;
             vibr_stock_c[0] = 2 * stock_vibr_damping_ratio * 1.0;
 
-            // 设置默认的Newmark参数
+            // 闁荤姳绀佹晶浠嬫偪閸℃﹩娓舵俊顖涱儥閸氬洭鏌ｉ妸銉ユewmark闂佸憡鐟ラ崐褰掑汲?
             vibr_a0 = 1 / (vibr_beta * dt * dt);
             vibr_a1 = vibr_gamma / (vibr_beta * dt);
             vibr_a2 = 1.0 / (vibr_beta * dt);
@@ -3613,13 +3815,13 @@ namespace cutsim {
             return;
         }
 
-        // 修改为基于模态的参数计算
+        // 婵烇絽娴傞崰妤呭极閸忚偐鈻旈柛婵嗗閸炪劌霉濠婂啫顒㈤懚鈺呮煙椤戣儻鍏屾繛鍫熷灴瀹曪綁宕掑☉娆愵啀闁荤姳绶ょ槐鏇㈡偩?
         vibr_k_eff.resize(vibration_values.size());
         vibr_stock_c.resize(vibration_values.size());
         for (size_t mode = 0; mode < vibration_values.size(); ++mode) {
-            double lambda = vibration_values[mode]; // 特征值
-            double omega = sqrt(lambda);           // 固有频率
-            vibr_stock_c[mode] = 2 * stock_vibr_damping_ratio * omega;   // 模态阻尼
+            double lambda = vibration_values[mode]; // 闂佺粯顨堥幊鎾舵濞戙垹纾?
+            double omega = sqrt(lambda);           // 闂佹悶鍎抽崕銈咃耿娴ｇ櫢绱ｉ柟瀵稿Т閼?
+            vibr_stock_c[mode] = 2 * stock_vibr_damping_ratio * omega;   // 濠碘槅鍨崜婵嬪焵椤戣法绐旀俊顖氭娴?
 
             //std::cerr <<"mode:"<<mode<< ";  lambda=" << lambda<<";  "<< std::endl;
 
@@ -3632,12 +3834,12 @@ namespace cutsim {
             vibr_a6 = dt * (1.0 - vibr_gamma);
             vibr_a7 = vibr_gamma * dt;
             vibr_k_eff[mode] = lambda;
-            //vibr_k_eff[mode] = lambda + vibr_a0 * 1.0 + vibr_a1 * vibr_stock_c[mode]; // 质量矩阵变为1
+            //vibr_k_eff[mode] = lambda + vibr_a0 * 1.0 + vibr_a1 * vibr_stock_c[mode]; // 闁荤姵鍔戦崝鎴﹀闯濞差亝鍎楅柍鍝勬噺閳诲牓鏌涘▎鎯疯偐鎷?
         }
     }
 
     void digitaltwin_AptCutterVolume::initstockVibration() {
-        // 初始化振动参数存储结构[模态]
+        // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥冨妼閻╀線鏌涢弬璇插鐎殿噮鍓熷顐﹀级鐠恒劍鎲奸梺绋胯閸斿海鍒掗妸鈺佸嚑闁告帗鍔曡灒闁斥晛鍟犻崑鎾寸▕?
         temp_vibration_vectors = vibration_vectors;
         const size_t num_modes = vibration_vectors.size();
         vibration_q.clear();
@@ -3656,29 +3858,60 @@ namespace cutsim {
 
     void digitaltwin_AptCutterVolume::calculatestockVibration() {
 
+        if (!has_surface) {
+            qDebug() << "Skip stock vibration: no surface contact point.";
+            temp_vibration_vectors = vibration_vectors;
+            return;
+        }
+
+        if (temp_vibration_vectors.empty() || temp_vibration_vectors[0].empty()) {
+            qDebug() << "Skip stock vibration: vibration vectors are empty.";
+            temp_vibration_vectors = vibration_vectors;
+            return;
+        }
+
         int node_id;
         if (surfaceCenter_id <= 0)
-            node_id = -surfaceCenter_id; // 正常节点编号
+            node_id = -surfaceCenter_id; // 濠殿喗绻愮徊浠嬫偉閸洘鍤嶉柛灞剧矊娴狀垳绱撻崒娑氬ⅹ鐟?
         else
-            node_id = surfaceCenter_id + normalvertices_size - 1; // 悬挂节点编号
+            node_id = surfaceCenter_id + normalvertices_size - 1; // 闂佽鍣崜姘扁偓鍨礋閹崇偤宕掑鍐у寲缂傚倸鍊归悧鏇°亹?
 
-        // 获取自由度数量和模态数量
+        // 闂佸吋鍎抽崲鑼躲亹閸ヮ剚鍤婃い蹇撴閺嗙娀骞栨潏楣冩闁哄棛鍠栭弻宀冪疀閹炬潙顏┑鈽嗗灙閸撴繈鍩€椤戣法鍔嶉柡鍡欏枛閺?
         const size_t num_dofs = temp_vibration_vectors[0].size();
         const size_t num_modes = temp_vibration_vectors.size();
 
-        // 初始化振动参数存储结构[模态]
+        if (node_id < 0 || temp_vibration_vectors[0][0].empty()
+            || static_cast<size_t>(node_id) >= temp_vibration_vectors[0][0].size()) {
+            qDebug() << "Skip stock vibration: invalid surface node id."
+                << "surfaceCenter_id:" << surfaceCenter_id
+                << "node_id:" << node_id
+                << "node_count:" << (temp_vibration_vectors[0][0].empty() ? 0 : temp_vibration_vectors[0][0].size());
+            temp_vibration_vectors = vibration_vectors;
+            return;
+        }
+
+        if (vibr_k_eff.size() < num_modes || vibr_stock_c.size() < num_modes) {
+            qDebug() << "Skip stock vibration: vibration parameters are not initialized."
+                << "modes:" << num_modes
+                << "k_eff:" << vibr_k_eff.size()
+                << "stock_c:" << vibr_stock_c.size();
+            temp_vibration_vectors = vibration_vectors;
+            return;
+        }
+
+        // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥冨妼閻╀線鏌涢弬璇插鐎殿噮鍓熷顐﹀级鐠恒劍鎲奸梺绋胯閸斿海鍒掗妸鈺佸嚑闁告帗鍔曡灒闁斥晛鍟犻崑鎾寸▕?
         vibration_q.resize(num_modes);
         vibration_dq.resize(num_modes);
         vibration_ddq.resize(num_modes);
         next_vibration_q.resize(num_modes);
         next_vibration_dq.resize(num_modes);
         next_vibration_ddq.resize(num_modes);
-        // 遍历所有模态
+        // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鐎ｅ棔绶氶獮鈧?
         for (size_t mode = 0; mode < num_modes; ++mode) {
             double f_total = 0.0;
             double f_eff_total = 0.0;
 
-            // 遍历所有自由度并累加（改为遍历angle_force_map中的所有力数据）
+            // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞鎼粹剝顔囬梺姹囧灩瀹曨剛鈧濞婇悰顕€宕滄担鐑樼劸闂佸憡姊绘刊瀵告濞嗘挸缁╅梺顐ｇ缁€瀣⒑椤掆偓缁夋潙顔忕猾顧磄le_force_map婵炴垶鎼╅崢鎯р枔閹达箑绠ラ柍褜鍓熷鍨緞婵犲偆娼濋梺杞拌兌婢ф鐣垫笟鈧弫?
             for (size_t dof = 0; dof < num_dofs; ++dof) {
                 const double force_component = [&] {
                     switch (dof) {
@@ -3691,19 +3924,19 @@ namespace cutsim {
                 f_total += force_contribution;
             }
 
-            // 计算等效力
+            // 闁荤姳绶ょ槐鏇㈡偩閼姐倗椹冲璺侯儐濞呭繘鏌?
             f_eff_total = f_total + (vibr_a0 * vibration_q[mode] +
                 vibr_a2 * vibration_dq[mode] +
                 vibr_a3 * vibration_ddq[mode])
                 + vibr_stock_c[mode] * (vibr_a1 * vibration_q[mode] +
                     vibr_a4 * vibration_dq[mode] +
                     vibr_a5 * vibration_ddq[mode]);
-            // 计算等效力
+            // 闁荤姳绶ょ槐鏇㈡偩閼姐倗椹冲璺侯儐濞呭繘鏌?
             f_eff_total = f_total;
 
-            double relaxation_factor = 0.7; // 松弛因子，0-1之间
+            double relaxation_factor = 0.7; // 闂佸搫顦伴崕宕囨闁秴鐐婇柣妯垮皺閹藉秹鏌?-1婵炴垶鏌ㄩ澶娢?
 
-            // 更新振动参数（存储各自由度之和）
+            // 闂佸搫娲ら悺銊╁蓟婵犲洤绠版い鏍ㄨ壘琚熼梺鍛婄懃閸婂綊寮抽悢鍏兼櫖闁割偅绻勯幗鐘绘煕鐏炶濡奸柟顔兼喘閹虫盯顢旈崱妯绘闁硅壈鎻紓姘辩不閿濆妞界€光偓鐎ｎ剛顦?
             vibration_q[mode] = next_vibration_q[mode];
             next_vibration_q[mode] = vibration_q[mode] * (1 - relaxation_factor) +
                 (f_eff_total / vibr_k_eff[mode]) * relaxation_factor;
@@ -3714,16 +3947,16 @@ namespace cutsim {
                 + vibr_a6 * vibration_ddq[mode]
                 + vibr_a7 * next_vibration_ddq[mode];
 
-            // 添加边界限制
+            // 濠电儑缍€椤曆勬叏閻愬瓨缍囬柛锔诲幗濞呮洟姊婚崟顒€濮囬柛?
             next_vibration_q[mode] = std::min(next_vibration_q[mode], deform_color_max);
 
-            std::cerr << "Mode:" << mode
-                << " f_eff=" << f_eff_total
-                << " vibr_k_eff=" << vibr_k_eff[mode]
-                << " vibration_q=" << next_vibration_q[mode]
-                << std::endl;
+            //std::cerr << "Mode:" << mode
+            //    << " f_eff=" << f_eff_total
+            //    << " vibr_k_eff=" << vibr_k_eff[mode]
+            //    << " vibration_q=" << next_vibration_q[mode]
+            //    << std::endl;
         }
-        temp_vibration_vectors = vibration_vectors;//初始化，避免占用内存
+        temp_vibration_vectors = vibration_vectors;//闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥囨暩缁€澶愭⒑椤掆偓閻忔繈宕㈤妶澶婄闁绘ê鐏氶弳蹇涙煕閹邦剚鍣归柣?
     }
 #pragma endregion
 

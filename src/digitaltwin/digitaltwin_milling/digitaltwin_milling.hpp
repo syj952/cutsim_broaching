@@ -92,8 +92,11 @@ namespace digitaltwin_milling {
         int setCutterParameters(const std::vector<Segment>& segments);
         int performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h_MyViewer, int* visulization_item, std::array<double, 2> visulization_limits);
         int performFEMSimulation_test(MdiChild* mdichild, Handle(MyViewer) h_MyViewer, int* visulization_item, std::array<double, 2> visulization_limits);
+        bool exportCurrentStl(const QString& stlFilePath, QString* errorMessage = nullptr);
+        bool hasRenderableResult() const;
         int setVibrParams();
         int peformModalAnalysis();
+        int updategl_num;
 
         // �����û�ѡ��ĵ��к͵�
         void setSelectedBladePoint(int blade_id, int point_index);

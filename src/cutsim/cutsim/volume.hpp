@@ -40,6 +40,7 @@
 #include "facet.hpp"
 #include "glvertex.hpp"
 #include "gldata.hpp"
+#include "mechanics_map.hpp"
 #include "stl.hpp"
 
 #ifdef MULTI_THREAD
@@ -1065,7 +1066,6 @@ namespace cutsim {
         void addMachiningContactEvent(int bladeId, int insideIndex,
             const GLVertex& p0, const GLVertex& p1,
             const GLVertex& materialPoint, double sweepWidthMm);
-
         // 定义force的数据结构
         struct ForceData {
             GLVertex force_r;
@@ -1271,16 +1271,22 @@ namespace cutsim {
             double avg_dmin;      // 平均切削深度
             double min_d2edge;    // 最小边距距离
             int node_id;         // 最小边距距离对应节点ID
+            int node_id_up;
             GLVertex P_min;
+            GLVertex P0;
+            GLVertex P1;
 
-            CutData(double avg, double min_d, int id, GLVertex P)
-                : avg_dmin(avg), min_d2edge(min_d), node_id(id), P_min(P) {
+            CutData(double avg, double min_d, int id, GLVertex P, int up_id = -1,
+                GLVertex p0 = GLVertex(), GLVertex p1 = GLVertex())
+                : avg_dmin(avg), min_d2edge(min_d), node_id(id), node_id_up(up_id),
+                P_min(P), P0(p0), P1(p1) {
             }
         };
 
         std::unordered_map<int, CutData> cut_h;
-        void addcut_h(int key, double cuth, double min_d2edge, int node_id, GLVertex P_min) {
-            cut_h.emplace(key, CutData(cuth, min_d2edge, node_id, P_min));
+        void addcut_h(int key, double cuth, double min_d2edge, int node_id, GLVertex P_min,
+            int node_id_up = -1, GLVertex P0 = GLVertex(), GLVertex P1 = GLVertex()) {
+            cut_h.emplace(key, CutData(cuth, min_d2edge, node_id, P_min, node_id_up, P0, P1));
         }
         // 定义force的数据结构
         struct ForceData {
@@ -1291,6 +1297,8 @@ namespace cutsim {
             GLVertex P_min;
         };
         std::array<double, 6> force_coefs;
+        MechanicsMapLibrary mechanics_map_library;
+        bool enable_mechanics_map_capture = true;
         // 添加用于记录力数据的map
         std::unordered_map<int, ForceData> force_map;//刀刃点
         std::unordered_map<int, std::unordered_map<int, ForceData>> angle_force_map;//刀刃数
@@ -1421,6 +1429,7 @@ namespace cutsim {
         double angle_dx, angle_dy, angle_dz;
         void setAngle(GLVertex a) {
             angle = a;
+            calcBB();
         }
 
         struct Segment {
@@ -1492,6 +1501,9 @@ namespace cutsim {
         std::map<int, ZData> z2sum_count;
         int totalforce_key, totalforce_id;
         std::vector<std::array<double, 3>>force_data_vector;
+        MechanicsMapLibrary mechanics_map_library;
+        bool mechanics_map_loaded = false;
+        std::array<double, 6> theta_f{};
         std::array<double, 3>force_data, force_xyz;//分别为切向、径向和轴向
 
         int checkConvexity(const GLVertex& a, const GLVertex& b, const GLVertex& c, const GLVertex& d) const;

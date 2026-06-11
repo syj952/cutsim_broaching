@@ -69,7 +69,6 @@ AngleDialog::AngleDialog(QWidget* parent, OcctView* view)
     if (mdiChild) {
         connect(btnTestSelectedFacesEdge, &QPushButton::clicked, mdiChild, &MdiChild::TestSelectedFacesCuttingEdge);
     }
-
     // 3. 切削方向设置按钮
     btnCuttingDir = new QPushButton(" 设置切削速度和方向", this);
     layout->addWidget(btnCuttingDir);

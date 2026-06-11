@@ -60,6 +60,7 @@ public:
     void Disconnect();
     bool logout();
     bool login();
+	bool r_pr();
 };
 
 #endif // CNCINFO_HEIDENHAINCOMMANDS_H

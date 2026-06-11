@@ -53,6 +53,36 @@ struct Color {
     }
 };
 
+struct ParentVertexIds {
+    void push_back(int vertexId) {
+        assert(count < 2);
+        if (count < 2)
+            values[count++] = vertexId;
+    }
+
+    void clear() {
+        count = 0;
+        values[0] = 0;
+        values[1] = 0;
+    }
+
+    int& operator[](int index) {
+        assert(index >= 0 && index < 2);
+        return values[index];
+    }
+
+    const int& operator[](int index) const {
+        assert(index >= 0 && index < 2);
+        return values[index];
+    }
+
+    unsigned char size() const { return count; }
+    bool empty() const { return count == 0; }
+
+    int values[2] = { 0, 0 };
+    unsigned char count = 0;
+};
+
 /// a vertex/point in 3D, with (x,y,z) coordinates of type GLfloat
 /// normal is (nx,ny,nz)
 /// color is (r,g,b)
@@ -131,9 +161,8 @@ struct GLVertex {
     void setId(int vertexId) {
         id = vertexId;
     }
-    std::vector<std::vector<double>> vibration_amplitude;
     int id;/// vertex id
-    std::vector<int> parentVertices; ///父节点列表
+    ParentVertexIds parentVertices; ///父节点列表
     ///<added hust
 
     // Operators etc

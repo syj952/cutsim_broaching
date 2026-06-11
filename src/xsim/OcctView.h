@@ -20,6 +20,7 @@
 #include "BoundaryConditionDialog.h"
 class TopoDS_Shape;
 class QRubberBand;
+class ColorBarOverlay;
 struct BoundaryConditionData;
 //!OCCT视图类
 class OcctView : public QWidget
@@ -195,10 +196,13 @@ public:
 	void updateColorScale();
 
 private:
+	void updateColorBarOverlayGeometry();
 	bool m_colorBarVisible = false;  // 颜色条是否显示，默认为隐藏
 	double m_displacementMin = 0.0;  // displacement 最小值
 	double m_displacementMax = 1.0;  // displacement 最大值
+	QString m_colorBarTitle = "Displacement";
 	Handle(AIS_ColorScale) m_colorScale;  // OpenCASCADE 颜色条对象
+	ColorBarOverlay* m_colorBarOverlay = nullptr;  // Qt自绘颜色条，避免OCCT文字纹理异常
 
 };
 

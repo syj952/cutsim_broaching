@@ -8,6 +8,7 @@
     <ClCompile Include="src\cutsim\cutsim\gldata.cpp" />
     <ClCompile Include="src\cutsim\cutsim\machine.cpp" />
     <ClCompile Include="src\cutsim\cutsim\marching_cubes.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\mechanics_map.cpp" />
     <ClCompile Include="src\cutsim\cutsim\octnode.cpp" />
     <ClCompile Include="src\cutsim\cutsim\octree.cpp" />
     <ClCompile Include="src\cutsim\cutsim\volume.cpp" />
@@ -77,6 +78,7 @@
     <ClInclude Include="src\cutsim\cutsim\isosurface.hpp" />
     <ClInclude Include="src\cutsim\cutsim\machine.hpp" />
     <ClInclude Include="src\cutsim\cutsim\marching_cubes.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\mechanics_map.hpp" />
     <ClInclude Include="src\cutsim\cutsim\octnode.hpp" />
     <ClInclude Include="src\cutsim\cutsim\octree.hpp" />
     <ClInclude Include="src\cutsim\cutsim\mfem_analysis1.hpp" />

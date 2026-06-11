@@ -1,4 +1,4 @@
-﻿// cuda_diff_volume.cu
+// cuda_diff_volume.cu
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <cmath>
@@ -10,12 +10,14 @@ struct GLVertex {
     float x, y, z;
 };
 
+#if 0
 struct CudaNodeData {
     float x[8];  // �ڵ㶥��� x ����
     float y[8];  // �ڵ㶥��� y ����
     float z[8];  // �ڵ㶥��� z ����
     float f[8];  // ÿ������ľ���ֵ
     int node_id[8];    // ����ȫ�ֽڵ�ID
+    int node_id[8];
 };
 
 // ���� VolumeParams �ṹ��
@@ -65,6 +67,9 @@ struct CutterSegment {
     CutterSegment() : type(0), radius1(0.0), radius2(0.0), length(0.0), center(), z_start(0.0), z_end(0.0) {}
 
     // 添加带参数的构造函数
+    CutterSegment(int t, double r1, double r2, double len, double zs, double ze)
+    CutterSegment() : type(0), radius1(0.0), radius2(0.0), length(0.0), center(), z_start(0.0), z_end(0.0) {}
+
     CutterSegment(int t, double r1, double r2, double len, double zs, double ze)
         : type(t), radius1(r1), radius2(r2), length(len), center(), z_start(zs), z_end(ze) {
     }
@@ -121,6 +126,108 @@ struct StlParams {
     float r, g, b;
 };
 
+#endif
+
+struct CudaNodeData {
+    float x[8];
+    float y[8];
+    float z[8];
+    float f[8];
+    int node_id[8];
+};
+
+struct VolumeParams {
+    int type;
+
+    static const int SPHERE_VOLUME = 0;
+    static const int CYLINDER_VOLUME = 1;
+    static const int RECTANGLE_VOLUME = 2;
+
+    struct SphereParams {
+        float x, y, z;
+        float radius;
+        float r, g, b;
+    };
+
+    struct CylinderParams {
+        float x, y, z;
+        float radius;
+        float length;
+        float angle_x, angle_y, angle_z;
+        float r, g, b;
+        double holderradius;
+    };
+
+    struct RectangleParams {
+        float center_x, center_y, center_z;
+        float length_x, length_y, length_z;
+        float r, g, b;
+    };
+
+    union {
+        SphereParams sphere;
+        CylinderParams cylinder;
+        RectangleParams rectangle;
+    } params;
+};
+
+struct CutterSegment {
+    int type;
+    double radius1, radius2, length;
+    GLVertex center, angle;
+    double z_start, z_end;
+
+    CutterSegment() : type(0), radius1(0.0), radius2(0.0), length(0.0), center(), angle(), z_start(0.0), z_end(0.0) {}
+
+    CutterSegment(int t, double r1, double r2, double len, double zs, double ze)
+        : type(t), radius1(r1), radius2(r2), length(len), center(), angle(), z_start(zs), z_end(ze) {
+    }
+};
+
+struct broaching_BladeParams {
+    float center_x, center_y, center_z;
+    float dx, dy, dz;
+    float cube_resolution_1;
+    double* point_r_blade;
+    int point_r_count;
+    GLVertex* blade_points;
+    int blade_points_count;
+    int blade_id;
+    int device_id;
+    int plane_count;
+    GLVertex* plane_normals;
+    GLVertex* plane_points;
+};
+
+struct milling_BladeParams {
+    float center_x, center_y, center_z;
+    float dx, dy, dz;
+    float cube_resolution;
+    double* point_r_blade;
+    int point_r_count;
+    GLVertex* blade_points;
+    int blade_points_count;
+    int device_id;
+};
+
+struct StlParams {
+    GLVertex* facets_v1;
+    GLVertex* facets_v2;
+    GLVertex* facets_v3;
+    GLVertex* facets_normal;
+    GLVertex* V21;
+    GLVertex* V21invV21dotV21;
+    GLVertex* V32;
+    GLVertex* V32invV32dotV32;
+    GLVertex* V13;
+    GLVertex* V13invV13dotV13;
+    int facet_count;
+    float min_x, min_y, min_z;
+    float max_x, max_y, max_z;
+    float inv_cube_size;
+    float r, g, b;
+};
+
 #define TOLERANCE 1e-5f
 #define CALC_TOLERANCE 1e-6f
 #define FLT_MAX 3.402823466e+38F
@@ -132,9 +239,41 @@ struct CANDIDATE {
     int index;
     StlSide side;
     float abs_d;
+    float rank_d;
+    float signed_d;
     float3 q;
     int property;
 };
+
+__device__ float3 stl_vertex(StlParams* stl, int index, int vertex_id) {
+    if (vertex_id == 1) {
+        return make_float3(stl->facets_v1[index].x, stl->facets_v1[index].y, stl->facets_v1[index].z);
+    }
+    if (vertex_id == 2) {
+        return make_float3(stl->facets_v2[index].x, stl->facets_v2[index].y, stl->facets_v2[index].z);
+    }
+    return make_float3(stl->facets_v3[index].x, stl->facets_v3[index].y, stl->facets_v3[index].z);
+}
+
+__device__ float3 stl_edge_vector(StlParams* stl, int index, int edge_id) {
+    if (edge_id == 1) {
+        return make_float3(stl->V21[index].x, stl->V21[index].y, stl->V21[index].z);
+    }
+    if (edge_id == 2) {
+        return make_float3(stl->V32[index].x, stl->V32[index].y, stl->V32[index].z);
+    }
+    return make_float3(stl->V13[index].x, stl->V13[index].y, stl->V13[index].z);
+}
+
+__device__ float3 stl_edge_start(StlParams* stl, int index, int edge_id) {
+    if (edge_id == 1) {
+        return make_float3(stl->facets_v1[index].x, stl->facets_v1[index].y, stl->facets_v1[index].z);
+    }
+    if (edge_id == 2) {
+        return make_float3(stl->facets_v2[index].x, stl->facets_v2[index].y, stl->facets_v2[index].z);
+    }
+    return make_float3(stl->facets_v3[index].x, stl->facets_v3[index].y, stl->facets_v3[index].z);
+}
 
 __device__ float3 facet_center(GLVertex* v1, GLVertex* v2, GLVertex* v3) {
     return make_float3(
@@ -204,10 +343,11 @@ __device__ float distance_to_segment(float3 p, float3 a, float3 b) {
     return sqrtf(diff.x * diff.x + diff.y * diff.y + diff.z * diff.z);
 }
 
-// 设备函数：计算点到单个三角面的有向距离，与 volume.cpp 中 StlVolume::distance 保持一致
+// 设备函数：计算点到单个三角面的候选距离，与 volume.cpp 中 StlVolume::dist 的单面逻辑保持一致
 __device__ void distance_to_triangle_with_info(float3 p, GLVertex* v1, GLVertex* v2, GLVertex* v3, GLVertex* normal,
     GLVertex* V21_vec, GLVertex* V21inv_vec, GLVertex* V32_vec, GLVertex* V32inv_vec,
-    GLVertex* V13_vec, GLVertex* V13inv_vec, bool* is_on_face, float3* q_out, int* property_out, StlSide* side_out, float* abs_d_out) {
+    GLVertex* V13_vec, GLVertex* V13inv_vec, bool* is_on_face, float3* q_out, int* property_out, StlSide* side_out,
+    float* abs_d_out, float* rank_d_out, float* signed_d_out) {
     float3 p3 = make_float3(p.x, p.y, p.z);
     float3 v13 = make_float3(v1->x, v1->y, v1->z);
     float3 v23 = make_float3(v2->x, v2->y, v2->z);
@@ -215,6 +355,14 @@ __device__ void distance_to_triangle_with_info(float3 p, GLVertex* v1, GLVertex*
     float3 n = make_float3(normal->x, normal->y, normal->z);
     float3 V213 = make_float3(V21_vec->x, V21_vec->y, V21_vec->z);
     float3 V21inv3 = make_float3(V21inv_vec->x, V21inv_vec->y, V21inv_vec->z);
+
+    *is_on_face = false;
+    *q_out = make_float3(0.0f, 0.0f, 0.0f);
+    *property_out = 0;
+    *side_out = UNDECIDED;
+    *abs_d_out = FLT_MAX;
+    *rank_d_out = FLT_MAX;
+    *signed_d_out = -FLT_MAX;
 
     float u = (p3.x - v13.x) * V21inv3.x + (p3.y - v13.y) * V21inv3.y + (p3.z - v13.z) * V21inv3.z;
     float3 q = make_float3(v13.x + u * V213.x, v13.y + u * V213.y, v13.z + u * V213.z);
@@ -239,22 +387,23 @@ __device__ void distance_to_triangle_with_info(float3 p, GLVertex* v1, GLVertex*
     float s31 = dot_float3(n3, n1);
 
     if (s12 > 0.0f && s23 > 0.0f && s31 > 0.0f) {
-        *is_on_face = true;
-        *q_out = q;
-        *property_out = ON_INNER;
-        *abs_d_out = fabsf(dir) - CALC_TOLERANCE;
+        float abs_dir = fabsf(dir);
+        float candidate_min = abs_dir - CALC_TOLERANCE;
         float d1 = norm_float3(v1->x - p.x, v1->y - p.y, v1->z - p.z);
         float d2 = norm_float3(v2->x - p.x, v2->y - p.y, v2->z - p.z);
         float d3 = norm_float3(v3->x - p.x, v3->y - p.y, v3->z - p.z);
-        if (*abs_d_out < d1 && *abs_d_out < d2 && *abs_d_out < d3) {
+        if (candidate_min < d1 && candidate_min < d2 && candidate_min < d3) {
+            *is_on_face = true;
+            *q_out = q;
+            *property_out = ON_INNER;
             *side_out = (dir > 0.0f) ? INSIDE : OUTSIDE;
-        } else {
-            *side_out = UNDECIDED;
+            *abs_d_out = abs_dir;
+            *rank_d_out = candidate_min;
+            *signed_d_out = dir;
+            return;
         }
-        return;
     }
 
-    *is_on_face = false;
     float3 V323 = make_float3(V32_vec->x, V32_vec->y, V32_vec->z);
     float3 V32inv3 = make_float3(V32inv_vec->x, V32inv_vec->y, V32inv_vec->z);
     float3 V133 = make_float3(V13_vec->x, V13_vec->y, V13_vec->z);
@@ -336,6 +485,8 @@ __device__ void distance_to_triangle_with_info(float3 p, GLVertex* v1, GLVertex*
     float3 q_p_closest = closest_q - p3;
     float dir_sign = dot_float3(q_p_closest, n);
     *side_out = (dir_sign > 0.0f) ? INSIDE : OUTSIDE;
+    *rank_d_out = min_abs_d;
+    *signed_d_out = (*side_out == INSIDE) ? min_abs_d : -min_abs_d;
 }
 
 __device__ float distance_to_triangle(float3 p, GLVertex* v1, GLVertex* v2, GLVertex* v3, GLVertex* normal,
@@ -344,17 +495,33 @@ __device__ float distance_to_triangle(float3 p, GLVertex* v1, GLVertex* v2, GLVe
     int property;
     StlSide side;
     float abs_d;
+    float rank_d;
+    float signed_d;
     distance_to_triangle_with_info(p, v1, v2, v3, normal, V21_vec, V21inv_vec, V32_vec, V32inv_vec,
-        V13_vec, V13inv_vec, is_on_face, q_out, &property, &side, &abs_d);
-    return (side == INSIDE) ? abs_d : -abs_d;
+        V13_vec, V13inv_vec, is_on_face, q_out, &property, &side, &abs_d, &rank_d, &signed_d);
+    return signed_d;
 }
 
 // 设备函数：计算点到 STL 体积的距离，带候选点机制和边界修正
 __device__ float stl_distance_with_correction(float3 p, StlParams* stl) {
-    CANDIDATE selected = { 0, UNDECIDED, FLT_MAX, make_float3(0,0,0), 0 };
-    CANDIDATE second = { 0, UNDECIDED, FLT_MAX, make_float3(0,0,0), 0 };
-    CANDIDATE third = { 0, UNDECIDED, FLT_MAX, make_float3(0,0,0), 0 };
-    float min_dist = FLT_MAX;
+    if (stl->facet_count <= 0 || stl->inv_cube_size <= 0.0f) {
+        return -FLT_MAX;
+    }
+
+    int index_x = (int)((p.x - stl->min_x) * stl->inv_cube_size);
+    int index_y = (int)((p.y - stl->min_y) * stl->inv_cube_size);
+    int index_z = (int)((p.z - stl->min_z) * stl->inv_cube_size);
+    if (index_x < 0 || index_x > 127 ||
+        index_y < 0 || index_y > 127 ||
+        index_z < 0 || index_z > 127) {
+        return -FLT_MAX;
+    }
+
+    CANDIDATE selected = { 0, UNDECIDED, FLT_MAX, FLT_MAX, -FLT_MAX, make_float3(0,0,0), 0 };
+    CANDIDATE second = { 0, UNDECIDED, FLT_MAX, FLT_MAX, -FLT_MAX, make_float3(0,0,0), 0 };
+    CANDIDATE third = { 0, UNDECIDED, FLT_MAX, FLT_MAX, -FLT_MAX, make_float3(0,0,0), 0 };
+    float min_rank = FLT_MAX;
+    bool correction = false;
 
     for (int i = 0; i < stl->facet_count; i++) {
         bool is_on_face;
@@ -362,35 +529,35 @@ __device__ float stl_distance_with_correction(float3 p, StlParams* stl) {
         int property;
         StlSide side;
         float abs_d;
+        float rank_d;
+        float signed_d;
 
         distance_to_triangle_with_info(p, &stl->facets_v1[i], &stl->facets_v2[i], &stl->facets_v3[i],
             &stl->facets_normal[i], &stl->V21[i], &stl->V21invV21dotV21[i],
             &stl->V32[i], &stl->V32invV32dotV32[i],
             &stl->V13[i], &stl->V13invV13dotV13[i],
-            &is_on_face, &q, &property, &side, &abs_d);
+            &is_on_face, &q, &property, &side, &abs_d, &rank_d, &signed_d);
 
-        if (abs_d >= min_dist && abs_d > second.abs_d)
+        if (side == UNDECIDED) {
             continue;
+        }
 
-        float dir = (side == INSIDE) ? abs_d : -abs_d;
+        if (rank_d >= min_rank && rank_d > second.rank_d) {
+            continue;
+        }
 
-        if (abs_d < min_dist) {
-            min_dist = abs_d;
+        CANDIDATE candidate = { i, side, abs_d, rank_d, signed_d, q, property };
+
+        if (rank_d < min_rank) {
+            min_rank = rank_d;
             third = second;
             second = selected;
-            selected.index = i;
-            selected.side = side;
-            selected.abs_d = abs_d;
-            selected.q = q;
-            selected.property = property;
+            selected = candidate;
+            correction = (property != ON_INNER);
         }
         else {
             third = second;
-            second.index = i;
-            second.side = side;
-            second.abs_d = abs_d;
-            second.q = q;
-            second.property = property;
+            second = candidate;
         }
     }
 
@@ -398,8 +565,7 @@ __device__ float stl_distance_with_correction(float3 p, StlParams* stl) {
         return -FLT_MAX;
     }
 
-    float ret = (selected.side == INSIDE) ? selected.abs_d : -selected.abs_d;
-    bool correction = (selected.property != ON_INNER);
+    float ret = selected.signed_d;
 
     if (second.side != UNDECIDED && third.side != UNDECIDED) {
         if (norm_float3(selected.q - third.q) < norm_float3(selected.q - second.q)) {
@@ -410,10 +576,126 @@ __device__ float stl_distance_with_correction(float3 p, StlParams* stl) {
     }
 
     if (correction) {
-        if (((second.side != UNDECIDED) && (second.side != selected.side)) ||
-            ((third.side != UNDECIDED) && (third.side != selected.side))) {
+        const float merge_tol = CALC_TOLERANCE * 100.0f;
+        bool side_conflict = ((second.side != UNDECIDED) && (second.side != selected.side)) ||
+            ((third.side != UNDECIDED) && (third.side != selected.side));
 
-            if (norm_float3(selected.q - second.q) < CALC_TOLERANCE * 100.0f) {
+        if (second.side != UNDECIDED && norm_float3(selected.q - second.q) < merge_tol) {
+            float3 fc1 = facet_center(&stl->facets_v1[selected.index], &stl->facets_v2[selected.index], &stl->facets_v3[selected.index]);
+            float3 fc2 = facet_center(&stl->facets_v1[second.index], &stl->facets_v2[second.index], &stl->facets_v3[second.index]);
+
+            float3 outer_vector = normalize_float3(normalize_float3(selected.q - fc1) + normalize_float3(selected.q - fc2));
+            float3 normal_avg_vector =
+                make_float3(stl->facets_normal[selected.index].x, stl->facets_normal[selected.index].y, stl->facets_normal[selected.index].z) +
+                make_float3(stl->facets_normal[second.index].x, stl->facets_normal[second.index].y, stl->facets_normal[second.index].z);
+            int normal_vec_calc_count = 1;
+            bool has_extra_same_point = false;
+
+            if (third.side != UNDECIDED && norm_float3(selected.q - third.q) < merge_tol) {
+                float3 fc3 = facet_center(&stl->facets_v1[third.index], &stl->facets_v2[third.index], &stl->facets_v3[third.index]);
+                outer_vector = normalize_float3(outer_vector + normalize_float3(selected.q - fc3));
+                normal_avg_vector = normal_avg_vector +
+                    make_float3(stl->facets_normal[third.index].x, stl->facets_normal[third.index].y, stl->facets_normal[third.index].z);
+                normal_vec_calc_count++;
+            }
+
+            for (int i = 0; i < stl->facet_count; i++) {
+                if (i == selected.index || i == second.index || (third.side != UNDECIDED && i == third.index)) {
+                    continue;
+                }
+
+                bool is_on_face;
+                float3 q;
+                int property;
+                StlSide side;
+                float abs_d;
+                float rank_d;
+                float signed_d;
+                distance_to_triangle_with_info(p, &stl->facets_v1[i], &stl->facets_v2[i], &stl->facets_v3[i],
+                    &stl->facets_normal[i], &stl->V21[i], &stl->V21invV21dotV21[i],
+                    &stl->V32[i], &stl->V32invV32dotV32[i],
+                    &stl->V13[i], &stl->V13invV13dotV13[i],
+                    &is_on_face, &q, &property, &side, &abs_d, &rank_d, &signed_d);
+                if (side == UNDECIDED || norm_float3(selected.q - q) >= merge_tol) {
+                    continue;
+                }
+
+                float3 fc = facet_center(&stl->facets_v1[i], &stl->facets_v2[i], &stl->facets_v3[i]);
+                outer_vector = normalize_float3(outer_vector + normalize_float3(selected.q - fc));
+                normal_avg_vector = normal_avg_vector +
+                    make_float3(stl->facets_normal[i].x, stl->facets_normal[i].y, stl->facets_normal[i].z);
+                normal_vec_calc_count++;
+                has_extra_same_point = true;
+                if (side != selected.side) {
+                    side_conflict = true;
+                }
+            }
+
+            if (side_conflict || has_extra_same_point) {
+                normal_avg_vector = normalize_float3(normal_avg_vector);
+                if (dot_float3(normal_avg_vector, outer_vector) < 0.0f) {
+                    outer_vector = outer_vector * -1.0f;
+                }
+
+                if (!(normal_vec_calc_count == 1 && second.side == selected.side)) {
+                    if (dot_float3(outer_vector, selected.q - p) < 0.0f) {
+                        if (selected.side == INSIDE) {
+                            selected.side = OUTSIDE;
+                            ret = -selected.abs_d;
+                        }
+                    }
+                    else {
+                        if (selected.side == OUTSIDE) {
+                            selected.side = INSIDE;
+                            ret = selected.abs_d;
+                        }
+                    }
+                }
+            }
+        }
+        else if (side_conflict && (second.side != UNDECIDED) && (second.side != selected.side) &&
+            ((selected.property & ON_EDGE) || (second.property & ON_EDGE))) {
+
+            bool do_correct = false;
+
+            if ((selected.property & ON_EDGE) && (second.property & ON_EDGE)) {
+                int selected_edge_id = selected.property & ~ON_EDGE;
+                int second_edge_id = second.property & ~ON_EDGE;
+                float3 edge1 = normalize_float3(stl_edge_vector(stl, selected.index, selected_edge_id));
+                float3 edge2 = normalize_float3(stl_edge_vector(stl, second.index, second_edge_id));
+                float3 p1 = stl_edge_start(stl, selected.index, selected_edge_id);
+                float3 p2 = stl_edge_start(stl, second.index, second_edge_id);
+                float3 edge_vec = normalize_float3(p1 - p2);
+
+                if (norm_float3(cross_float3(edge1, edge_vec)) < TOLERANCE &&
+                    norm_float3(cross_float3(edge1, edge2)) < TOLERANCE) {
+                    do_correct = true;
+                }
+            }
+            else if ((selected.property & ON_EDGE) && (second.property & ON_VERTEX)) {
+                int selected_edge_id = selected.property & ~ON_EDGE;
+                int second_vertex_id = second.property & ~ON_VERTEX;
+                float3 edge = normalize_float3(stl_edge_vector(stl, selected.index, selected_edge_id));
+                float3 ev = stl_edge_start(stl, selected.index, selected_edge_id);
+                float3 point_vec = normalize_float3(stl_vertex(stl, second.index, second_vertex_id) - ev);
+
+                if (norm_float3(cross_float3(edge, point_vec)) < TOLERANCE) {
+                    do_correct = true;
+                }
+            }
+            else if ((second.property & ON_EDGE) && (selected.property & ON_VERTEX)) {
+                int second_edge_id = second.property & ~ON_EDGE;
+                int selected_vertex_id = selected.property & ~ON_VERTEX;
+                float3 edge = normalize_float3(stl_edge_vector(stl, second.index, second_edge_id));
+                float3 ev = stl_edge_start(stl, second.index, second_edge_id);
+                float3 point_vec = normalize_float3(stl_vertex(stl, selected.index, selected_vertex_id) - ev);
+
+                if (norm_float3(cross_float3(edge, point_vec)) < TOLERANCE) {
+                    do_correct = true;
+                }
+            }
+
+            if (do_correct) {
                 float3 fc1 = facet_center(&stl->facets_v1[selected.index], &stl->facets_v2[selected.index], &stl->facets_v3[selected.index]);
                 float3 fc2 = facet_center(&stl->facets_v1[second.index], &stl->facets_v2[second.index], &stl->facets_v3[second.index]);
 
@@ -421,13 +703,6 @@ __device__ float stl_distance_with_correction(float3 p, StlParams* stl) {
                 float3 normal_avg_vector = normalize_float3(
                     make_float3(stl->facets_normal[selected.index].x, stl->facets_normal[selected.index].y, stl->facets_normal[selected.index].z) +
                     make_float3(stl->facets_normal[second.index].x, stl->facets_normal[second.index].y, stl->facets_normal[second.index].z));
-
-                if (third.side != UNDECIDED && norm_float3(selected.q - third.q) < CALC_TOLERANCE * 100.0f) {
-                    float3 fc3 = facet_center(&stl->facets_v1[third.index], &stl->facets_v2[third.index], &stl->facets_v3[third.index]);
-                    outer_vector = normalize_float3(outer_vector + normalize_float3(selected.q - fc3));
-                    normal_avg_vector = normalize_float3(normal_avg_vector +
-                        make_float3(stl->facets_normal[third.index].x, stl->facets_normal[third.index].y, stl->facets_normal[third.index].z));
-                }
 
                 if (dot_float3(normal_avg_vector, outer_vector) < 0.0f) {
                     outer_vector = outer_vector * -1.0f;
@@ -443,72 +718,6 @@ __device__ float stl_distance_with_correction(float3 p, StlParams* stl) {
                     if (selected.side == OUTSIDE) {
                         selected.side = INSIDE;
                         ret = selected.abs_d;
-                    }
-                }
-            }
-            else if ((second.side != selected.side) &&
-                ((selected.property & ON_EDGE) || (second.property & ON_EDGE))) {
-
-                bool do_correct = false;
-                float3 edge1, edge2, p1, p2, edge_vec, point_vec;
-
-                if ((selected.property & ~ON_EDGE) == 1) {
-                    edge1 = make_float3(stl->V21[selected.index].x, stl->V21[selected.index].y, stl->V21[selected.index].z);
-                    p1 = make_float3(stl->facets_v1[selected.index].x, stl->facets_v1[selected.index].y, stl->facets_v1[selected.index].z);
-                }
-                else if ((selected.property & ~ON_EDGE) == 2) {
-                    edge1 = make_float3(stl->V32[selected.index].x, stl->V32[selected.index].y, stl->V32[selected.index].z);
-                    p1 = make_float3(stl->facets_v2[selected.index].x, stl->facets_v2[selected.index].y, stl->facets_v2[selected.index].z);
-                }
-                else {
-                    edge1 = make_float3(stl->V13[selected.index].x, stl->V13[selected.index].y, stl->V13[selected.index].z);
-                    p1 = make_float3(stl->facets_v3[selected.index].x, stl->facets_v3[selected.index].y, stl->facets_v3[selected.index].z);
-                }
-
-                if ((second.property & ~ON_EDGE) == 1) {
-                    edge2 = make_float3(stl->V21[second.index].x, stl->V21[second.index].y, stl->V21[second.index].z);
-                    p2 = make_float3(stl->facets_v1[second.index].x, stl->facets_v1[second.index].y, stl->facets_v1[second.index].z);
-                }
-                else if ((second.property & ~ON_EDGE) == 2) {
-                    edge2 = make_float3(stl->V32[second.index].x, stl->V32[second.index].y, stl->V32[second.index].z);
-                    p2 = make_float3(stl->facets_v2[second.index].x, stl->facets_v2[second.index].y, stl->facets_v2[second.index].z);
-                }
-                else {
-                    edge2 = make_float3(stl->V13[second.index].x, stl->V13[second.index].y, stl->V13[second.index].z);
-                    p2 = make_float3(stl->facets_v3[second.index].x, stl->facets_v3[second.index].y, stl->facets_v3[second.index].z);
-                }
-
-                edge1 = normalize_float3(edge1);
-                edge2 = normalize_float3(edge2);
-                edge_vec = normalize_float3(p1 - p2);
-
-                if (norm_float3(cross_float3(edge1, edge_vec)) < TOLERANCE && norm_float3(cross_float3(edge1, edge2)) < TOLERANCE) {
-                    do_correct = true;
-                }
-
-                if (do_correct) {
-                    float3 fc1 = facet_center(&stl->facets_v1[selected.index], &stl->facets_v2[selected.index], &stl->facets_v3[selected.index]);
-                    float3 fc2 = facet_center(&stl->facets_v1[second.index], &stl->facets_v2[second.index], &stl->facets_v3[second.index]);
-                    float3 outer_vector = normalize_float3(normalize_float3(selected.q - fc1) + normalize_float3(selected.q - fc2));
-                    float3 normal_avg_vector = normalize_float3(
-                        make_float3(stl->facets_normal[selected.index].x, stl->facets_normal[selected.index].y, stl->facets_normal[selected.index].z) +
-                        make_float3(stl->facets_normal[second.index].x, stl->facets_normal[second.index].y, stl->facets_normal[second.index].z));
-
-                    if (dot_float3(normal_avg_vector, outer_vector) < 0.0f) {
-                        outer_vector = outer_vector * -1.0f;
-                    }
-
-                    if (dot_float3(outer_vector, selected.q - p) < 0.0f) {
-                        if (selected.side == INSIDE) {
-                            selected.side = OUTSIDE;
-                            ret = -selected.abs_d;
-                        }
-                    }
-                    else {
-                        if (selected.side == OUTSIDE) {
-                            selected.side = INSIDE;
-                            ret = selected.abs_d;
-                        }
                     }
                 }
             }
@@ -745,12 +954,14 @@ namespace cutsim {
         rel_p.x = p.x - seg->center.x;
         rel_p.y = p.y - seg->center.y;
         rel_p.z = p.z - seg->center.z;
+        // World -> cutter local: inverse of calcBB()'s local -> world
+        // transform Rz * Ry * Rx.
 
         // 先绕x轴旋转，再绕y轴旋转
         if (seg->angle.x != 0.0 || seg->angle.y != 0.0 || seg->angle.z != 0.0) {
-            rel_p = rotate_x(rel_p, seg->angle.x);
-            rel_p = rotate_y(rel_p, seg->angle.y);
-            rel_p = rotate_z(rel_p, seg->angle.z);
+            rel_p = rotate_z(rel_p, -seg->angle.z);
+            rel_p = rotate_y(rel_p, -seg->angle.y);
+            rel_p = rotate_x(rel_p, -seg->angle.x);
         }
 
         // 计算到z轴的距离
@@ -766,6 +977,72 @@ namespace cutsim {
         tt.x = rel_p.x;
         tt.y = rel_p.y;
         tt.z = rel_p.z - seg->z_end;
+
+        if (seg->type == 1) {  // CutterSegment::BALL
+
+        float3 ball_p;
+        ball_p.x = rel_p.x;
+        ball_p.y = rel_p.y;
+        ball_p.z = rel_p.z - seg->z_end;
+
+            return sqrt((double)ball_p.x * ball_p.x +
+                (double)ball_p.y * ball_p.y +
+                (double)ball_p.z * ball_p.z) - seg->radius1;
+        }
+
+        if (seg->type == 2) {  // CutterSegment::CONE
+            double z0 = seg->z_start;
+            double z1 = seg->z_end;
+            double r0 = seg->radius1;
+            double r1 = seg->radius2;
+            if (z1 < z0) {
+                double tmp = z0; z0 = z1; z1 = tmp;
+                tmp = r0; r0 = r1; r1 = tmp;
+            }
+            r0 = (r0 < 0.0) ? 0.0 : r0;
+            r1 = (r1 < 0.0) ? 0.0 : r1;
+
+            double h = z1 - z0;
+            if (h <= 1e-12) {
+                double cap_radius = (r0 > r1) ? r0 : r1;
+                double dz = fabs((double)rel_p.z - z0);
+                double dr = d - cap_radius;
+                return (dr > 0.0) ? sqrt(dr * dr + dz * dz) : dz;
+            }
+
+            double z = rel_p.z;
+            double t = (z - z0) / h;
+            double radius_at_z = r0 + (r1 - r0) * t;
+            bool inside = (t >= 0.0 && t <= 1.0 && d <= radius_at_z);
+
+            // Distance to the conical side in the (radius, z) cross-section.
+            double side_dr = r1 - r0;
+            double side_dz = h;
+            double side_len2 = side_dr * side_dr + side_dz * side_dz;
+            double u = ((d - r0) * side_dr + (z - z0) * side_dz) / side_len2;
+            u = (u < 0.0) ? 0.0 : ((u > 1.0) ? 1.0 : u);
+            double closest_r = r0 + u * side_dr;
+            double closest_z = z0 + u * side_dz;
+            double side_dist = sqrt((d - closest_r) * (d - closest_r) +
+                (z - closest_z) * (z - closest_z));
+
+            double bottom_dz = z - z0;
+            double bottom_dr = d - r0;
+            double bottom_dist = (bottom_dr > 0.0)
+                ? sqrt(bottom_dr * bottom_dr + bottom_dz * bottom_dz)
+                : fabs(bottom_dz);
+
+            double top_dz = z - z1;
+            double top_dr = d - r1;
+            double top_dist = (top_dr > 0.0)
+                ? sqrt(top_dr * top_dr + top_dz * top_dz)
+                : fabs(top_dz);
+
+            double unsigned_dist = side_dist;
+            unsigned_dist = (bottom_dist < unsigned_dist) ? bottom_dist : unsigned_dist;
+            unsigned_dist = (top_dist < unsigned_dist) ? top_dist : unsigned_dist;
+            return inside ? -unsigned_dist : unsigned_dist;
+        }
 
         double radius = seg->radius1;  // 对于圆柱体，底面和顶面半径相同
 
@@ -843,18 +1120,6 @@ namespace cutsim {
             }
 
             return distance_to_side;
-        }
-        case 1: {  // CutterSegment::BALL
-            // 球体：距离 = 半径 - sqrt(x^2 + y^2 + z^2)
-            double dist = sqrtf(rel_p.x * rel_p.x + rel_p.y * rel_p.y + rel_p.z * rel_p.z);
-            double result = -seg->radius1 + dist;
-            return result;
-        }
-        case 2: {  // CutterSegment::CONE
-            // 圆锥体：根据z坐标计算半径，然后计算距离
-            double r = seg->radius1 + (seg->radius2 - seg->radius1) * (rel_p.z - seg->z_start) / (seg->z_end - seg->z_start);
-            double result = -r + d;
-            return result;
         }
         default:
             return INFINITY; // 未知类型，返回极大值
@@ -1005,9 +1270,7 @@ namespace cutsim {
 
     // ���Ƿ���͹�������ڣ��������桢����Ͳ��棩
     __device__ bool broaching_pointInConvexPolyhedron(float3 p, GLVertex* base_vertices, int n, float3 translation, GLVertex* plane_normals, GLVertex* plane_points, int plane_count) {
-        // Check whether p lies between a rake-face plane and the same plane
-        // translated by the tool step. The input normal direction is not stable
-        // across blade files, so accept either signed-distance orientation.
+        // ��������ƽ�棬�����Ƿ���ÿ��ƽ��ƽ��֮��
         bool between_swept_planes = false;
         const float plane_eps = 1e-6f;
         for (int i = 0; i < plane_count; ++i) {
@@ -1080,7 +1343,92 @@ namespace cutsim {
     }
 
     // �����Ӻ������жϵ��Ƿ��������壨�����������ı��ι��ɣ�
+    __device__ void milling_loadHullPoints(GLVertex* quad1, GLVertex* quad2, float3 hull_points[8]) {
+        for (int i = 0; i < 4; ++i) {
+            hull_points[i] = make_float3(quad1[i].x, quad1[i].y, quad1[i].z);
+            hull_points[i + 4] = make_float3(quad2[i].x, quad2[i].y, quad2[i].z);
+        }
+    }
+
+    __device__ bool milling_supportingHullPlane8(const float3 hull_points[8], int i, int j, int k,
+        float3* outward_normal, float* normal_length) {
+        const float3 a = hull_points[i];
+        const float3 b = hull_points[j];
+        const float3 c = hull_points[k];
+        const float3 ab = make_float3(b.x - a.x, b.y - a.y, b.z - a.z);
+        const float3 ac = make_float3(c.x - a.x, c.y - a.y, c.z - a.z);
+        const float3 normal = cross3(ab, ac);
+        const float normal_len = sqrtf(dot3(normal, normal));
+        if (normal_len < 1e-6f) {
+            return false;
+        }
+
+        const float side_eps = 1e-5f * normal_len;
+        int positive = 0;
+        int negative = 0;
+        for (int m = 0; m < 8; ++m) {
+            if (m == i || m == j || m == k) {
+                continue;
+            }
+
+            const float3 pm = hull_points[m];
+            const float signed_dist = dot3(normal, make_float3(pm.x - a.x, pm.y - a.y, pm.z - a.z));
+            if (signed_dist > side_eps) {
+                ++positive;
+            }
+            else if (signed_dist < -side_eps) {
+                ++negative;
+            }
+            if (positive > 0 && negative > 0) {
+                return false;
+            }
+        }
+
+        if (positive == 0 && negative == 0) {
+            return false;
+        }
+
+        if (positive == 0) {
+            *outward_normal = normal;
+        }
+        else {
+            *outward_normal = make_float3(-normal.x, -normal.y, -normal.z);
+        }
+        *normal_length = normal_len;
+        return true;
+    }
+
+    __device__ bool milling_pointInsideHull8(float3 p, const float3 hull_points[8]) {
+        bool has_face = false;
+        for (int i = 0; i < 6; ++i) {
+            for (int j = i + 1; j < 7; ++j) {
+                for (int k = j + 1; k < 8; ++k) {
+                    float3 outward_normal;
+                    float normal_len = 0.0f;
+                    if (!milling_supportingHullPlane8(hull_points, i, j, k, &outward_normal, &normal_len)) {
+                        continue;
+                    }
+
+                    has_face = true;
+                    const float3 a = hull_points[i];
+                    const float signed_dist = dot3(outward_normal,
+                        make_float3(p.x - a.x, p.y - a.y, p.z - a.z));
+                    if (signed_dist > 1e-4f * normal_len) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return has_face;
+    }
+
     __device__ bool milling_pointInConvexPolyhedron(float3 p, GLVertex* quad1, GLVertex* quad2) {
+        float3 hull_points[8];
+        milling_loadHullPoints(quad1, quad2, hull_points);
+        return milling_pointInsideHull8(p, hull_points);
+    }
+
+#if 0
         // ���ı��ηֽ�Ϊ6�������棨ÿ���ı��ηֽ�Ϊ2�������Σ�
         float3 faces[12][3] = {
             // ����������1
@@ -1175,6 +1523,7 @@ namespace cutsim {
         }
         return true;
     }
+#endif
 
 
     // �㵽�߶ε���С���루3D�Ż��棩
@@ -1189,6 +1538,74 @@ namespace cutsim {
         float3 delta = make_float3(p.x - projection.x, p.y - projection.y, p.z - projection.z);
 
         return sqrtf(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+    }
+
+    __device__ float milling_pointToSegmentDistSafe3D(float3 p, float3 a, float3 b) {
+        const float3 ab = make_float3(b.x - a.x, b.y - a.y, b.z - a.z);
+        const float3 ap = make_float3(p.x - a.x, p.y - a.y, p.z - a.z);
+        const float len2 = dot3(ab, ab);
+        if (len2 < 1e-12f) {
+            const float3 delta = make_float3(p.x - a.x, p.y - a.y, p.z - a.z);
+            return sqrtf(dot3(delta, delta));
+        }
+
+        float t = dot3(ap, ab) / len2;
+        t = fmaxf(0.0f, fminf(1.0f, t));
+
+        const float3 projection = make_float3(a.x + t * ab.x, a.y + t * ab.y, a.z + t * ab.z);
+        const float3 delta = make_float3(p.x - projection.x, p.y - projection.y, p.z - projection.z);
+        return sqrtf(dot3(delta, delta));
+    }
+
+    __device__ float milling_pointToTriangleDist3D(float3 p, float3 a, float3 b, float3 c) {
+        const float3 ab = make_float3(b.x - a.x, b.y - a.y, b.z - a.z);
+        const float3 ac = make_float3(c.x - a.x, c.y - a.y, c.z - a.z);
+        const float3 normal = cross3(ab, ac);
+        const float normal_len = sqrtf(dot3(normal, normal));
+
+        if (normal_len > 1e-6f && pointInTriangle3D(p, a, b, c)) {
+            return fabsf(dot3(normal, make_float3(p.x - a.x, p.y - a.y, p.z - a.z))) / normal_len;
+        }
+
+        float min_dist = milling_pointToSegmentDistSafe3D(p, a, b);
+        min_dist = fminf(min_dist, milling_pointToSegmentDistSafe3D(p, b, c));
+        min_dist = fminf(min_dist, milling_pointToSegmentDistSafe3D(p, c, a));
+        return min_dist;
+    }
+
+    __device__ bool milling_evalConvexHull8(float3 p, GLVertex* quad1, GLVertex* quad2, float* min_distance) {
+        float3 hull_points[8];
+        milling_loadHullPoints(quad1, quad2, hull_points);
+
+        bool has_face = false;
+        bool inside = true;
+        float distance = 1e12f;
+
+        for (int i = 0; i < 6; ++i) {
+            for (int j = i + 1; j < 7; ++j) {
+                for (int k = j + 1; k < 8; ++k) {
+                    float3 outward_normal;
+                    float normal_len = 0.0f;
+                    if (!milling_supportingHullPlane8(hull_points, i, j, k, &outward_normal, &normal_len)) {
+                        continue;
+                    }
+
+                    has_face = true;
+                    const float3 a = hull_points[i];
+                    const float signed_dist = dot3(outward_normal,
+                        make_float3(p.x - a.x, p.y - a.y, p.z - a.z));
+                    if (signed_dist > 1e-4f * normal_len) {
+                        inside = false;
+                    }
+
+                    distance = fminf(distance,
+                        milling_pointToTriangleDist3D(p, hull_points[i], hull_points[j], hull_points[k]));
+                }
+            }
+        }
+
+        *min_distance = has_face ? distance : 1e12f;
+        return has_face && inside;
     }
 
 
@@ -1487,15 +1904,13 @@ namespace cutsim {
         }
 
         // ��¼������Сֵ��������飨������¼��δ��������ʱ��
-        if (inside) {
-            for (int j = 0; j < 3; ++j) {
-                if (min_dists[j] != INFINITY) {  // ����¼��Ч����
-                    int rec_idx = atomicAdd(record_count, 1);
-                    if (rec_idx < max_records) {
-                        z_array[rec_idx] = min_is[j];  // ע�⣺ԭ������z_array������Ҫ��������׼ȷ����edge_indices��
-                        distence2edge[rec_idx] = min_dists[j];
-                        node_ids[rec_idx] = nodes[nodeIdx].node_id[vertexIdx];
-                    }
+        for (int j = 0; j < 3; ++j) {
+            if (min_dists[j] != INFINITY) {  // ����¼��Ч����
+                int rec_idx = atomicAdd(record_count, 1);
+                if (rec_idx < max_records) {
+                    z_array[rec_idx] = min_is[j];  // ע�⣺ԭ������z_array������Ҫ��������׼ȷ����edge_indices��
+                    distence2edge[rec_idx] = min_dists[j];
+                    node_ids[rec_idx] = nodes[nodeIdx].node_id[vertexIdx];
                 }
             }
         }
@@ -1533,17 +1948,23 @@ namespace cutsim {
             GLVertex* quad1 = &blade->blade_points[i];
             GLVertex* quad2 = &blade->blade_points[i + 4];
 
-            if (milling_pointInConvexPolyhedron(p, quad1, quad2)) {
+            float hull_dist = 1e12f;
+            const bool in_hull = milling_evalConvexHull8(p, quad1, quad2, &hull_dist);
+            if (hull_dist >= 1e11f) {
+                hull_dist = milling_distanceToHexahedron(p, quad1, quad2);
+            }
+
+            if (in_hull) {
                 cut_h = milling_distanceToCutEdge(p, quad1, quad2);
                 if (cut_h < blade->cube_resolution) {
                     f_min_dist = cut_h;
                 }
-                else  f_min_dist = fminf(f_min_dist, milling_distanceToHexahedron(p, quad1, quad2));
+                else  f_min_dist = fminf(f_min_dist, hull_dist);
                 inside = true;
                 break;
             }
             else {
-                f_min_dist = fminf(f_min_dist, milling_distanceToHexahedron(p, quad1, quad2));
+                f_min_dist = fminf(f_min_dist, hull_dist);
             }
 
         }
@@ -2334,54 +2755,9 @@ namespace cutsim {
             return;
         }
 
-        // 拷贝 STL 参数和分配设备内存
-        GLVertex* d_facets_v1 = NULL;
-        GLVertex* d_facets_v2 = NULL;
-        GLVertex* d_facets_v3 = NULL;
-        GLVertex* d_facets_normal = NULL;
-        GLVertex* d_V21 = NULL;
-        GLVertex* d_V21invV21dotV21 = NULL;
-        GLVertex* d_V32 = NULL;
-        GLVertex* d_V32invV32dotV32 = NULL;
-        GLVertex* d_V13 = NULL;
-        GLVertex* d_V13invV13dotV13 = NULL;
-
-        int facet_count = host_stl.facet_count;
-
-        cudaMalloc(&d_facets_v1, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_facets_v2, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_facets_v3, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_facets_normal, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_V21, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_V21invV21dotV21, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_V32, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_V32invV32dotV32, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_V13, facet_count * sizeof(GLVertex));
-        cudaMalloc(&d_V13invV13dotV13, facet_count * sizeof(GLVertex));
-
-        cudaMemcpy(d_facets_v1, host_stl.facets_v1, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_facets_v2, host_stl.facets_v2, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_facets_v3, host_stl.facets_v3, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_facets_normal, host_stl.facets_normal, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_V21, host_stl.V21, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_V21invV21dotV21, host_stl.V21invV21dotV21, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_V32, host_stl.V32, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_V32invV32dotV32, host_stl.V32invV32dotV32, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_V13, host_stl.V13, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_V13invV13dotV13, host_stl.V13invV13dotV13, facet_count * sizeof(GLVertex), cudaMemcpyHostToDevice);
-
-        // 更新设备端 STL 参数中的指针
+        // host_stl 中的 STL 数组已由 cuda_functions.cpp 分配到 device；
+        // 这里仅把包含 device 指针的参数结构复制给 kernel。
         StlParams dev_stl_data = host_stl;
-        dev_stl_data.facets_v1 = d_facets_v1;
-        dev_stl_data.facets_v2 = d_facets_v2;
-        dev_stl_data.facets_v3 = d_facets_v3;
-        dev_stl_data.facets_normal = d_facets_normal;
-        dev_stl_data.V21 = d_V21;
-        dev_stl_data.V21invV21dotV21 = d_V21invV21dotV21;
-        dev_stl_data.V32 = d_V32;
-        dev_stl_data.V32invV32dotV32 = d_V32invV32dotV32;
-        dev_stl_data.V13 = d_V13;
-        dev_stl_data.V13invV13dotV13 = d_V13invV13dotV13;
 
         err = cudaMemcpy(dev_stl, &dev_stl_data, sizeof(StlParams), cudaMemcpyHostToDevice);
         if (err != cudaSuccess) {
@@ -2389,9 +2765,6 @@ namespace cutsim {
             fflush(stderr);
             cudaFree(dev_nodes);
             cudaFree(dev_stl);
-            cudaFree(d_facets_v1); cudaFree(d_facets_v2); cudaFree(d_facets_v3); cudaFree(d_facets_normal);
-            cudaFree(d_V21); cudaFree(d_V21invV21dotV21); cudaFree(d_V32); cudaFree(d_V32invV32dotV32);
-            cudaFree(d_V13); cudaFree(d_V13invV13dotV13);
             return;
         }
 
@@ -2420,9 +2793,6 @@ namespace cutsim {
                 fflush(stderr);
                 cudaFree(dev_nodes);
                 cudaFree(dev_stl);
-                cudaFree(d_facets_v1); cudaFree(d_facets_v2); cudaFree(d_facets_v3); cudaFree(d_facets_normal);
-                cudaFree(d_V21); cudaFree(d_V21invV21dotV21); cudaFree(d_V32); cudaFree(d_V32invV32dotV32);
-                cudaFree(d_V13); cudaFree(d_V13invV13dotV13);
                 return;
             }
 
@@ -2432,9 +2802,6 @@ namespace cutsim {
                 fflush(stderr);
                 cudaFree(dev_nodes);
                 cudaFree(dev_stl);
-                cudaFree(d_facets_v1); cudaFree(d_facets_v2); cudaFree(d_facets_v3); cudaFree(d_facets_normal);
-                cudaFree(d_V21); cudaFree(d_V21invV21dotV21); cudaFree(d_V32); cudaFree(d_V32invV32dotV32);
-                cudaFree(d_V13); cudaFree(d_V13invV13dotV13);
                 return;
             }
             threadsProcessed += threadsThisBatch;
@@ -2450,9 +2817,6 @@ namespace cutsim {
         // 释放设备内存
         cudaFree(dev_nodes);
         cudaFree(dev_stl);
-        cudaFree(d_facets_v1); cudaFree(d_facets_v2); cudaFree(d_facets_v3); cudaFree(d_facets_normal);
-        cudaFree(d_V21); cudaFree(d_V21invV21dotV21); cudaFree(d_V32); cudaFree(d_V32invV32dotV32);
-        cudaFree(d_V13); cudaFree(d_V13invV13dotV13);
 
         fflush(stdout);
     }

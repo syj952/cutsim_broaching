@@ -41,7 +41,11 @@ namespace cutsim {
             (void)thePrsMgr;
             (void)theMode;
 
-            if (!myGLData || myGLData->vertexCount() == 0)
+            if (!myGLData)
+                return;
+
+            QMutexLocker locker(&(myGLData->renderMutex));
+            if (myGLData->vertexCount() == 0)
                 return;
 
             const GLVertex* vertices = myGLData->getVertexArray();

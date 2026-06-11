@@ -1,5 +1,7 @@
 #include "ForceMonitorWidget.hpp"
 #include <QVBoxLayout>
+#include <QFile>
+#include <QTextStream>
 
 ForceMonitorWidget::ForceMonitorWidget(QWidget* parent) : QWidget(parent) {
     setupUI();
@@ -87,4 +89,42 @@ void ForceMonitorWidget::clearData() {
     firstPoint = true;
     axisDisplacement->setRange(0, maxDis);
     axisForce->setRange(minForce, maxForce);
+}
+
+bool ForceMonitorWidget::hasData() const {
+    return seriesX && seriesX->count() > 0;
+}
+
+bool ForceMonitorWidget::exportDataToCsv(const QString& filePath, QString* errorMessage) const {
+    if (!hasData()) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("当前没有切削力数据可导出。");
+        }
+        return false;
+    }
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("无法创建切削力数据文件：") + filePath;
+        }
+        return false;
+    }
+
+    QTextStream out(&file);
+    out.setRealNumberPrecision(9);
+    out << "stroke,Fx,Fy,Fz\n";
+
+    const QVector<QPointF> xPoints = seriesX->pointsVector();
+    const QVector<QPointF> yPoints = seriesY->pointsVector();
+    const QVector<QPointF> zPoints = seriesZ->pointsVector();
+    const int count = qMin(xPoints.size(), qMin(yPoints.size(), zPoints.size()));
+    for (int i = 0; i < count; ++i) {
+        out << xPoints[i].x() << ","
+            << xPoints[i].y() << ","
+            << yPoints[i].y() << ","
+            << zPoints[i].y() << "\n";
+    }
+
+    return true;
 }

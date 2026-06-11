@@ -289,6 +289,19 @@ bool CncInfo_HeiDenHainCommands::login(){
         return true;
 }
 
+bool CncInfo_HeiDenHainCommands::r_pr() {
+    QByteArray ReceiveData;
+    GetData(hdhcommands->R_pr, ReceiveData);
+    if (telegram.Control == "T_ER") {
+        qDebug() << "R_pr false";
+        return false;
+    }
+    else
+        return true;
+}
+
+
+
 bool CncInfo_HeiDenHainCommands::GetPlc(QString address1, QString address2, QString type, QVariant &result) {
     try {
         QByteArray ReceiveData;

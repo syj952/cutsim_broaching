@@ -17,40 +17,41 @@
     <Keyword>QtVS_v304</Keyword>
     <QtMsBuild Condition="'$(QtMsBuild)'=='' AND Exists('$(LocalAppData)\QtMsBuild\qt.targets')">$(LocalAppData)\QtMsBuild</QtMsBuild>
     <QtMsBuild Condition="'$(QtMsBuild)'=='' OR !Exists('$(QtMsBuild)\qt.targets')">$(MSBuildProjectDirectory)\QtMsBuild</QtMsBuild>
+    <CudaBuildCustomizations Condition="'$(CudaBuildCustomizations)'=='' AND '$(CUDA_PATH)'!='' AND Exists('$(CUDA_PATH)\extras\visual_studio_integration\MSBuildExtensions\CUDA 11.6.props')">$(CUDA_PATH)\extras\visual_studio_integration\MSBuildExtensions\</CudaBuildCustomizations>
+    <CudaBuildCustomizations Condition="'$(CudaBuildCustomizations)'==''">$(VCTargetsPath)\BuildCustomizations\</CudaBuildCustomizations>
     <ProjectName>XCutsim-Broach</ProjectName>
-    <CudaToolkitDir>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.4\</CudaToolkitDir>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>false</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="$(QtMsBuild)\qt_defaults.props" Condition="Exists('$(QtMsBuild)\qt_defaults.props')" />
   <PropertyGroup Label="QtSettings" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <QtInstall>D:\Qt\5.14.2\msvc2017_64</QtInstall>
+    <QtInstall>5.15.2_msvc2019_64</QtInstall>
     <QtModules>core;xml;sql;opengl;network;gui;widgets;serialport;concurrent;charts</QtModules>
     <QtDeploy>true</QtDeploy>
     <QtBuildConfig>debug</QtBuildConfig>
   </PropertyGroup>
   <PropertyGroup Label="QtSettings" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <QtInstall>D:\Qt\5.14.2\msvc2017_64</QtInstall>
+    <QtInstall>5.15.2_msvc2019_64</QtInstall>
     <QtModules>core;xml;sql;opengl;network;gui;widgets;serialport;concurrent;charts</QtModules>
   </PropertyGroup>
   <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') OR !Exists('$(QtMsBuild)\Qt.props')">
     <Message Importance="High" Text="QtMsBuild: could not locate qt.targets, qt.props; project may not build correctly." />
   </Target>
   <ImportGroup Label="ExtensionSettings">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.props" />
+    <Import Project="$(CudaBuildCustomizations)CUDA 11.6.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
@@ -64,13 +65,13 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>.\3rdparty\opencascade-7.7.0\inc;.\3rdparty\gmsh-4.12.0-Windows64-sdk\include;.\3rdparty\boost_1_72_0\boost;.\3rdparty\boost_1_72_0;.\3rdparty\rapidjson-master\include;.\3rdparty\nupengl.core.0.1.0.1\build\native\include;$(MSBuildProjectDirectory);.\3rdparty\eigen-3.4.0;.\3rdparty\VTK8.2.0\include\vtk-8.2;$(IncludePath)</IncludePath>
-    <LibraryPath>.\3rdparty\nupengl.core.0.1.0.1\build\native\lib\x64;.\3rdparty\opencascade-7.7.0\win64\vc14\lib;.\3rdparty\gmsh-4.12.0-Windows64-sdk\lib;D:\Qt\5.14.2\msvc2017_64\lib;.\3rdparty\VTK8.2.0\lib\Debug;$(MSBuildProjectDirectory);$(LibraryPath)</LibraryPath>
+    <IncludePath>.\3rdparty\opencascade-7.7.0\inc;.\3rdparty\gmsh-4.12.0-Windows64-sdk\include;.\3rdparty\boost_1_72_0\boost;.\3rdparty\boost_1_72_0;.\3rdparty\rapidjson-master\include;.\3rdparty\nupengl.core.0.1.0.1\build\native\include;D:\XCutsim\Xsimcut-Broach-master\Xsimcut-Broach-master\XCutsim_Broaching;.\3rdparty\eigen-3.4.0;.\3rdparty\VTK8.2.0\include\vtk-8.2;$(IncludePath)</IncludePath>
+    <LibraryPath>.\3rdparty\nupengl.core.0.1.0.1\build\native\lib\x64;.\3rdparty\opencascade-7.7.0\win64\vc14\lib;.\3rdparty\gmsh-4.12.0-Windows64-sdk\lib;$(QTDIR)\lib;.\3rdparty\VTK8.2.0\lib\Debug;$(LibraryPath)</LibraryPath>
     <IgnoreImportLibrary>true</IgnoreImportLibrary>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>.\3rdparty\opencascade-7.7.0\inc;.\3rdparty\gmsh-4.12.0-Windows64-sdk\include;.\3rdparty\boost_1_72_0\boost;.\3rdparty\boost_1_72_0;.\3rdparty\rapidjson-master\include;.\3rdparty\nupengl.core.0.1.0.1\build\native\include;$(MSBuildProjectDirectory);.\3rdparty\eigen-3.4.0;.\3rdparty\VTK8.2.0\include\vtk-8.2;$(IncludePath)</IncludePath>
-    <LibraryPath>.\3rdparty\opencascade-7.7.0\win64\vc14\lib;.\3rdparty\gmsh-4.12.0-Windows64-sdk\lib;.\3rdparty\nupengl.core.0.1.0.1\build\native\lib\x64;D:\Qt\5.14.2\msvc2017_64\lib;.\3rdparty\VTK8.2.0\lib\Release;$(MSBuildProjectDirectory);.\3rdparty\eigen-3.4.0;$(LibraryPath)</LibraryPath>
+    <IncludePath>.\3rdparty\opencascade-7.7.0\inc;.\3rdparty\gmsh-4.12.0-Windows64-sdk\include;.\3rdparty\boost_1_72_0\boost;.\3rdparty\boost_1_72_0;.\3rdparty\rapidjson-master\include;.\3rdparty\nupengl.core.0.1.0.1\build\native\include;D:\XCutsim\Xsimcut-Broach-master\Xsimcut-Broach-master\XCutsim_Broaching;.\3rdparty\eigen-3.4.0;.\3rdparty\VTK8.2.0\include\vtk-8.2;$(IncludePath)</IncludePath>
+    <LibraryPath>.\3rdparty\opencascade-7.7.0\win64\vc14\lib;.\3rdparty\gmsh-4.12.0-Windows64-sdk\lib;.\3rdparty\nupengl.core.0.1.0.1\build\native\lib\x64;$(QTDIR)\lib;.\3rdparty\VTK8.2.0\lib\Release;.\3rdparty\eigen-3.4.0;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -137,6 +138,7 @@
     <ClCompile Include="src\cutsim\cutsim\lex_analyzer.cpp" />
     <ClCompile Include="src\cutsim\cutsim\machine.cpp" />
     <ClCompile Include="src\cutsim\cutsim\marching_cubes.cpp" />
+    <ClCompile Include="src\cutsim\cutsim\mechanics_map.cpp" />
     <ClCompile Include="src\cutsim\cutsim\mfem_analysis1.cpp" />
     <ClCompile Include="src\cutsim\cutsim\mfem_mesh_writer.cpp" />
     <ClCompile Include="src\cutsim\cutsim\octnode.cpp" />
@@ -265,6 +267,7 @@
     <ClInclude Include="src\cutsim\cutsim\isosurface.hpp" />
     <ClInclude Include="src\cutsim\cutsim\machine.hpp" />
     <ClInclude Include="src\cutsim\cutsim\marching_cubes.hpp" />
+    <ClInclude Include="src\cutsim\cutsim\mechanics_map.hpp" />
     <ClInclude Include="src\cutsim\cutsim\mfem_analysis1.hpp" />
     <ClInclude Include="src\cutsim\cutsim\mfem_mesh_writer.hpp" />
     <ClInclude Include="src\cutsim\cutsim\octnode.hpp" />
@@ -290,7 +293,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="$(QtMsBuild)\qt.targets" Condition="Exists('$(QtMsBuild)\qt.targets')" />
   <ImportGroup Label="ExtensionTargets">
-    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.4.targets" />
+    <Import Project="$(CudaBuildCustomizations)CUDA 11.6.targets" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -300,5 +303,3 @@
     <Error Condition="!Exists('packages\nupengl.core.0.1.0.1\build\native\nupengl.core.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\nupengl.core.0.1.0.1\build\native\nupengl.core.targets'))" />
   </Target>
 </Project>
-
-

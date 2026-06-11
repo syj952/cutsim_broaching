@@ -98,7 +98,7 @@ void DigitalTwinController::tryStartSimulation()
             int beginIndex = i * totalForceCount / num;
             int endIndex = (i + 1) * totalForceCount / num;
 
-            std::array<double, 3> avgForceData = { 100, 100, 0 };
+            std::array<double, 3> avgForceData = { 0.0, 0.0, 0.0 };
             int count = endIndex - beginIndex;
 
             for (int j = beginIndex; j < endIndex; ++j) {

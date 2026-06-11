@@ -20,6 +20,7 @@ void MdiChild::RunSerialPort()
         serialportWidget->setObjectName("SerialPortComDialog");
 
         connect(serialportWidget, &SerialPortCom::newData, this->p_VtkWidget, &VTKWidget::linshi_2, Qt::UniqueConnection);
+        connect(serialportWidget, &SerialPortCom::newData, this, &MdiChild::updateMachineCommForceData, Qt::UniqueConnection);
 
         QVBoxLayout* layout = new QVBoxLayout(dialog);
         layout->addWidget(serialportWidget);

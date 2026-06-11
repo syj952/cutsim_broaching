@@ -1,13 +1,12 @@
-
 #ifndef MFEM_ANALYSIS1_HPP
 #define MFEM_ANALYSIS1_HPP
-
 //#include "mfem.hpp"
 #include <fstream>
 #include <iostream>
 #include <chrono>
 #include <string>
 #include <vector>
+#include <QByteArray>
 #include "../cutsim/volume.hpp"
 #include "cutsim.hpp"
 #include "octree.hpp"
@@ -43,5 +42,5 @@ int runResidualRelease(
     const std::string& outputPrefix,
     ResidualReleaseSummary* summary = nullptr);
 static QByteArray extractJsonSegment(const QByteArray &raw);
-
+ // MFEM_ANALYSIS1_HPP
 #endif // MFEM_ANALYSIS1_HPP

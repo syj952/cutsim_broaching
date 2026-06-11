@@ -109,7 +109,10 @@ void MdiChild::Init()
         VTKWidget* p_VtkWidget = new VTKWidget(this);
         this->p_VtkWidget = p_VtkWidget;//将局部变量赋值给 Mdichi1d的成员变量
 
+        p_VtkWidget->setMinimumSize(600, 560);
+        p_VtkWidget->setInfoOverlayVisible(false);
         centralLayout->addWidget(p_VtkWidget);
+        centralLayout->setStretch(1, 1);
         // 设置比例
         centralLayout->setStretch(0, 1); // 左侧占1份
         centralLayout->setStretch(1, 1); // 右侧占1份
@@ -250,6 +253,84 @@ void MdiChild::Init()
         this->addDockWidget(Qt::RightDockWidgetArea, p_forceVisualDock);
     }
 
+    {
+        p_VtkVisualDock = new QDockWidget(QString::fromUtf8("\xE6\x9C\xBA\xE5\xBA\x8A\xE9\x80\x9A\xE8\xAE\xAF\xE4\xBF\xA1\xE6\x81\xAF"), this);
+
+        QWidget* commWidget = new QWidget(p_VtkVisualDock);
+        QVBoxLayout* commLayout = new QVBoxLayout(commWidget);
+        commLayout->setContentsMargins(12, 12, 12, 12);
+        commLayout->setSpacing(10);
+
+        auto setupValueLabel = [](QLabel* label) {
+            label->setMinimumWidth(120);
+            label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            label->setText("--");
+        };
+
+        auto addRow = [&](QGridLayout* layout, int row, const QString& name, QLabel*& valueLabel) {
+            QLabel* nameLabel = new QLabel(name, commWidget);
+            nameLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+            valueLabel = new QLabel(commWidget);
+            setupValueLabel(valueLabel);
+            layout->addWidget(nameLabel, row, 0);
+            layout->addWidget(valueLabel, row, 1);
+        };
+
+        QGroupBox* mcsGroup = new QGroupBox("MCS", commWidget);
+        QGridLayout* mcsLayout = new QGridLayout(mcsGroup);
+        addRow(mcsLayout, 0, "X1", m_commPosXLabel);
+        addRow(mcsLayout, 1, "Y1", m_commPosYLabel);
+        addRow(mcsLayout, 2, "Z1", m_commPosZLabel);
+        addRow(mcsLayout, 3, "C1", m_commPosCLabel);
+        addRow(mcsLayout, 4, "A1", m_commPosALabel);
+        commLayout->addWidget(mcsGroup);
+
+        QGroupBox* toolGroup = new QGroupBox("TOOL", commWidget);
+        QGridLayout* toolLayout = new QGridLayout(toolGroup);
+        addRow(toolLayout, 0, "Tool", m_commToolLabel);
+        m_commToolLabel->setText("0");
+
+        addRow(toolLayout, 1, "F [mm/min]", m_commFeedLabel);
+        m_commFeedLabel->setText("200");
+
+        addRow(toolLayout, 2, "S [rpm]", m_commRpmLabel);
+        m_commRpmLabel->setText("3000");
+        commLayout->addWidget(toolGroup);
+
+        QGroupBox* serialGroup = new QGroupBox("Serial Port", commWidget);
+        QGridLayout* serialLayout = new QGridLayout(serialGroup);
+        addRow(serialLayout, 0, "Ft/N", m_commForce1Label);
+        m_commForce1Label->setText("100.000");
+        addRow(serialLayout, 1, "Fr/N", m_commForce2Label);
+        m_commForce2Label->setText("100.000");
+        addRow(serialLayout, 2, "Fa/N", m_commForce3Label);
+        m_commForce3Label->setText("0.000");
+        QLabel* channelLabel = new QLabel("Channel", serialGroup);
+        m_commChannelBox = new QComboBox(serialGroup);
+        m_commChannelBox->addItems({ "force_1", "force_2", "force_3", "feed" });
+        m_commChannelBox->setCurrentIndex(3);
+        serialLayout->addWidget(channelLabel, 3, 0);
+        serialLayout->addWidget(m_commChannelBox, 3, 1);
+        connect(m_commChannelBox, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            p_VtkWidget, &VTKWidget::setColorChannelIndex);
+        p_VtkWidget->setColorChannelIndex(m_commChannelBox->currentIndex());
+        commLayout->addWidget(serialGroup);
+        commLayout->addStretch();
+
+        p_VtkVisualDock->setWidget(commWidget);
+        p_VtkVisualDock->setFeatures(QDockWidget::DockWidgetClosable |
+            QDockWidget::DockWidgetMovable |
+            QDockWidget::DockWidgetFloatable);
+        p_VtkVisualDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+        p_VtkVisualDock->setMinimumWidth(360);
+        p_VtkVisualDock->setMinimumHeight(360);
+        p_VtkVisualDock->setStyleSheet(p_forceVisualDock->styleSheet());
+
+        this->splitDockWidget(p_forceVisualDock, p_VtkVisualDock, Qt::Vertical);
+    }
+
+#if 0
+
     //直线度 - 右侧停靠窗口，位于切削力下方
     {
         p_straightnessVisualDock = new QDockWidget(tr("直线度"), this);
@@ -277,6 +358,7 @@ void MdiChild::Init()
 
 
     // 设置标签页样式（如果使用MDI区域）
+#endif
     this->setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
     this->setDocumentMode(true);
 
@@ -291,7 +373,7 @@ void MdiChild::Init()
 
     QList<int> rightSizes;
     rightSizes << 1 << 1;
-    this->resizeDocks({ p_forceVisualDock, p_straightnessVisualDock }, rightSizes, Qt::Vertical);
+    this->resizeDocks({ p_forceVisualDock, p_VtkVisualDock }, rightSizes, Qt::Vertical);
 }
 
 // 添加窗口状态保存和恢复功能

@@ -8,13 +8,210 @@
 #include <src/cutsim/cutsim/marching_cubes.hpp>
 #include <src/cutsim/cutsim/octnode.hpp>
 #include <QEventLoop>
+#include <QDebug>
+#include <QMetaObject>
+#include <QString>
 #include <QTimer>
+#include <QFile>
+#include <QMutexLocker>
+#include <QTextStream>
 #include <cmath>
 #include <vector>
 #include <array>
 #include <unordered_map>
+#include <string>
 
 using digitaltwin_milling::DigitalTwinMilling;
+
+namespace {
+    void setExportError(QString* errorMessage, const QString& message)
+    {
+        if (errorMessage) {
+            *errorMessage = message;
+        }
+    }
+
+    void writeAsciiStlFacet(QTextStream& out, const cutsim::GLVertex& a, const cutsim::GLVertex& b, const cutsim::GLVertex& c)
+    {
+        const double ux = b.x - a.x;
+        const double uy = b.y - a.y;
+        const double uz = b.z - a.z;
+        const double vx = c.x - a.x;
+        const double vy = c.y - a.y;
+        const double vz = c.z - a.z;
+        double nx = uy * vz - uz * vy;
+        double ny = uz * vx - ux * vz;
+        double nz = ux * vy - uy * vx;
+        const double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (len > 1e-12) {
+            nx /= len;
+            ny /= len;
+            nz /= len;
+        }
+        else {
+            nx = 0.0;
+            ny = 0.0;
+            nz = 1.0;
+        }
+
+        out << "  facet normal " << nx << " " << ny << " " << nz << "\n";
+        out << "    outer loop\n";
+        out << "      vertex " << a.x << " " << a.y << " " << a.z << "\n";
+        out << "      vertex " << b.x << " " << b.y << " " << b.z << "\n";
+        out << "      vertex " << c.x << " " << c.y << " " << c.z << "\n";
+        out << "    endloop\n";
+        out << "  endfacet\n";
+    }
+
+    bool exportGLDataToAsciiStl(cutsim::GLData* glData, const QString& filePath, QString* errorMessage)
+    {
+        if (!glData) {
+            setExportError(errorMessage, QStringLiteral("No simulation result is available for STL export."));
+            return false;
+        }
+
+        QFile outFile(filePath);
+        if (!outFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            setExportError(errorMessage, QStringLiteral("Cannot create STL file: ") + filePath);
+            return false;
+        }
+
+        QTextStream out(&outFile);
+        out.setRealNumberPrecision(9);
+
+        QMutexLocker locker(&(glData->renderMutex));
+        const int vertexCount = glData->vertexCount();
+        const int indexCount = glData->indexCount();
+        const int polyVerts = glData->polygonVertices();
+        const cutsim::GLVertex* vertices = glData->getVertexArray();
+        const GLuint* indices = glData->getIndexArray();
+
+        if (vertexCount <= 0 || indexCount <= 0 || !vertices || !indices) {
+            setExportError(errorMessage, QStringLiteral("The current cut surface mesh is empty."));
+            return false;
+        }
+        if (polyVerts != 3 && polyVerts != 4) {
+            setExportError(errorMessage, QStringLiteral("The current render mesh is not triangular/quadrilateral and cannot be exported as STL."));
+            return false;
+        }
+
+        out << "solid digitaltwin_milling_result\n";
+        int facetCount = 0;
+        for (int i = 0; i + polyVerts - 1 < indexCount; i += polyVerts) {
+            const GLuint i0 = indices[i];
+            const GLuint i1 = indices[i + 1];
+            const GLuint i2 = indices[i + 2];
+            if (i0 >= static_cast<GLuint>(vertexCount) || i1 >= static_cast<GLuint>(vertexCount) || i2 >= static_cast<GLuint>(vertexCount)) {
+                continue;
+            }
+
+            writeAsciiStlFacet(out, vertices[i0], vertices[i1], vertices[i2]);
+            ++facetCount;
+
+            if (polyVerts == 4) {
+                const GLuint i3 = indices[i + 3];
+                if (i3 < static_cast<GLuint>(vertexCount)) {
+                    writeAsciiStlFacet(out, vertices[i0], vertices[i2], vertices[i3]);
+                    ++facetCount;
+                }
+            }
+        }
+        out << "endsolid digitaltwin_milling_result\n";
+
+        if (facetCount == 0) {
+            setExportError(errorMessage, QStringLiteral("No STL facets were written."));
+            return false;
+        }
+
+        return true;
+    }
+
+    QString deformationColorBarTitle(int visualizationItem)
+    {
+        switch (visualizationItem) {
+        case 0:
+            return QStringLiteral("U magnitude");
+        case 1:
+            return QStringLiteral("Ux");
+        case 2:
+            return QStringLiteral("Uy");
+        case 3:
+            return QStringLiteral("Uz");
+        default:
+            return QStringLiteral("Displacement");
+        }
+    }
+
+    void showDeformationColorBar(MdiChild* mdichild, int visualizationItem, double minValue, double maxValue)
+    {
+        if (!mdichild || !mdichild->q3dView) {
+            return;
+        }
+
+        if (minValue == maxValue) {
+            maxValue = minValue + 1.0e-12;
+        }
+
+        mdichild->q3dView->setColorBarVisible(
+            true,
+            deformationColorBarTitle(visualizationItem),
+            minValue,
+            maxValue);
+    }
+
+    bool loadMechanicsMapIfNeeded(cutsim::digitaltwin_AptCutterVolume* tool)
+    {
+        if (!tool || tool->mechanics_map_loaded) {
+            return tool != nullptr;
+        }
+
+        std::string error;
+        if (!tool->mechanics_map_library.loadFromFile(cutsim::defaultMechanicsMapPath(), &error)) {
+            qDebug() << "Failed to load mechanics map:" << QString::fromStdString(error)
+                << "path:" << cutsim::defaultMechanicsMapPath();
+            return false;
+        }
+
+        tool->mechanics_map_loaded = true;
+        tool->theta_f = tool->mechanics_map_library.theta_f;
+        qDebug() << "Loaded mechanics map records:"
+            << static_cast<unsigned long long>(tool->mechanics_map_library.size())
+            << "from" << cutsim::defaultMechanicsMapPath();
+        return true;
+    }
+
+    void releaseMechanicsMap(cutsim::digitaltwin_AptCutterVolume* tool)
+    {
+        if (!tool) {
+            return;
+        }
+
+        tool->mechanics_map_library.clear();
+        tool->mechanics_map_loaded = false;
+    }
+
+    void prepareMappedLookaheadAssimilation(cutsim::digitaltwin_AptCutterVolume* tool,
+        const std::array<double, 3>& measured_force)
+    {
+        (void)measured_force;
+        if (!tool || !tool->mechanics_map_loaded) {
+            return;
+        }
+
+        const int angle_index = (std::abs(tool->mechanics_map_library.angle_step) > 1e-12)
+            ? static_cast<int>(std::llround(tool->tool_angle / tool->mechanics_map_library.angle_step))
+            : 0;
+        const auto records = tool->mechanics_map_library.recordsForAngle(angle_index);
+        qDebug() << "Mapped lookahead placeholder angle_index:" << angle_index
+            << "records:" << static_cast<unsigned long long>(records.size());
+
+        // Intentionally left as an integration point:
+        // 1) adjust mapped distributed force from measured_force,
+        // 2) update modal q from mapped force,
+        // 3) refresh h_online/Phi_online/theta_f,
+        // 4) roll the future angle window.
+    }
+}
 
 DigitalTwinMilling::DigitalTwinMilling(int depth) {
     max_depth = depth;
@@ -22,6 +219,7 @@ DigitalTwinMilling::DigitalTwinMilling(int depth) {
     gld = myGLWidget->addGLData();
     stockVolume = new StockVolume();
     octree_cube_size = 50;
+    updategl_num = 0;
 
     selectedBladeId = 0;
     selectedPointIndex = 0;
@@ -160,21 +358,27 @@ int DigitalTwinMilling::setStlStock(QString file1Path, double partoffset[3], dou
     double cube_resolution = octree_cube_size * 2.0 / pow(2.0, max_depth - 1);
     stock2->setCubeResolution(cube_resolution);
     int error = stock2->readStlFile(file1Path);
-    if (error == 0) {
-        stock2->setColor(PARTS_COLOR);
-        stock2->calcBB();
-        stockVolume->stock = stock2;
-        stockVolume->operation = SUM_OPERATION;
-        myStocks.push_back(stockVolume);
-
-    }
-    else {
-        qDebug() << "STL error:" << error;
+    if (error != 0 || stock2->facets.empty()) {
+        qDebug() << "STL error:" << error << "facets:" << stock2->facets.size();
         delete stock2;
-        delete stockVolume;
+        return error != 0 ? error : 1;
     }
+
+    stock2->setColor(PARTS_COLOR);
+    stock2->calcBB();
+    if (stock2->facets.empty()) {
+        qDebug() << "STL error: no valid facets after calcBB";
+        delete stock2;
+        return 1;
+    }
+    stockVolume->stock = stock2;
+    stockVolume->operation = SUM_OPERATION;
+    myStocks.push_back(stockVolume);
+
     myMillDigitalTwin = new cutsim::Cutsim(octree_cube_size, max_depth, octree_center, gld, myGLWidget);
     myMillDigitalTwin->sum_stl_volume_cuda(stock2, max_depth);
+    //myMillDigitalTwin->sum_volume(stock2);
+
     myMillDigitalTwin->updateGL();
     return error;
 }
@@ -228,7 +432,8 @@ int DigitalTwinMilling::newMill()
     currentMill->stock_vibr_damping_ratio = 0.001;
 
     currentMill->tool_angle = 0;
-    currentMill->deform_color_max = 0.07;
+    currentMill->deform_color_var = 0;
+    currentMill->deform_color_max = 0.01;
     currentMill->deform_color_min = 0;
 
     myMillDigitalTwin->updateGL();
@@ -267,36 +472,38 @@ int DigitalTwinMilling::setMch_Data(std::array<double, 14>Msh_Data, std::vector<
     for (int i = 0; i < myTools.size(); i++)
     {
         cutsim::digitaltwin_AptCutterVolume* currentMill = dynamic_cast<cutsim::digitaltwin_AptCutterVolume*>(myTools[i]);
-        currentMill->spindle_speed = Msh_Data[0];
-        currentMill->step = Msh_Data[1];
-        currentMill->now_x = Msh_Data[2];
-        currentMill->now_y = Msh_Data[3];
-        currentMill->now_z = Msh_Data[4];
-        currentMill->pre_x = Msh_Data[5];
-        currentMill->pre_y = Msh_Data[6];
-        currentMill->pre_z = Msh_Data[7];
-        currentMill->A = Msh_Data[8];
-        currentMill->B = Msh_Data[9];
-        currentMill->C = Msh_Data[10];
-        currentMill->pre_A = Msh_Data[11];
-        currentMill->pre_B = Msh_Data[12];
-        currentMill->pre_C = Msh_Data[13];
-        currentMill->force_data_vector = force_data;
-        //currentMill->spindle_speed = 1100;
-        //currentMill->step = 3.14;
-        //currentMill->now_x = 6.8;
-        //currentMill->now_y = -18;
-        //currentMill->now_z = 15;
-        //currentMill->pre_x = 6.8;
-        //currentMill->pre_y = 18;
-        //currentMill->pre_z = 15;
-        //currentMill->A = 0;
-        //currentMill->B = 0;
-        //currentMill->C = 0;
-        //currentMill->pre_A = 0;
-        //currentMill->pre_B = 0;
-        //currentMill->pre_C = 0;
-        //currentMill->force_data_vector.assign(10, { 100.0, 100.0, 0.0 });
+        //currentMill->spindle_speed = Msh_Data[0];
+        //currentMill->step = Msh_Data[1];
+        //currentMill->now_x = Msh_Data[2];
+        //currentMill->now_y = Msh_Data[3];
+        //currentMill->now_z = Msh_Data[4];
+        //currentMill->pre_x = Msh_Data[5];
+        //currentMill->pre_y = Msh_Data[6];
+        //currentMill->pre_z = Msh_Data[7];
+        //currentMill->A = Msh_Data[8];
+        //currentMill->B = Msh_Data[9];
+        //currentMill->C = Msh_Data[10];
+        //currentMill->pre_A = Msh_Data[11];
+        //currentMill->pre_B = Msh_Data[12];
+        //currentMill->pre_C = Msh_Data[13];
+        //currentMill->force_data_vector = force_data;
+
+        currentMill->spindle_speed = 300;
+        currentMill->step = 3.14;
+        currentMill->now_x = 50;
+        currentMill->now_y = 0;
+        currentMill->now_z = 7;
+        currentMill->pre_x = -50;
+        currentMill->pre_y = 0;
+        currentMill->pre_z = 7;
+        currentMill->A = 0;
+        currentMill->B = 0;
+        currentMill->C = 0;
+        currentMill->pre_A = 0;
+        currentMill->pre_B = 0;
+        currentMill->pre_C = 0;
+        currentMill->force_data_vector.assign(100, { 0.0, 0.0, 0.0 });
+      
 
         qDebug() << "aaaaaaa" << Msh_Data[0] << Msh_Data[1] << Msh_Data[2] << Msh_Data[3] << Msh_Data[4] << Msh_Data[8] << Msh_Data[9] << Msh_Data[10];
 
@@ -338,9 +545,14 @@ int DigitalTwinMilling::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer
 {
 
     cutsim::digitaltwin_AptCutterVolume* s1 = dynamic_cast<cutsim::digitaltwin_AptCutterVolume*>(myTools[0]);
+    QMetaObject::invokeMethod(mdichild, [mdichild, s1]() {
+        showDeformationColorBar(mdichild, s1->deform_color_var, s1->deform_color_min, s1->deform_color_max);
+        }, Qt::BlockingQueuedConnection);
+    loadMechanicsMapIfNeeded(s1);
 
     s1->dt = s1->step / (s1->spindle_speed * 2 * M_PI / 60.0);
-    //peformModalAnalysis();
+    //
+    // ();
 
     int step_length = static_cast<int>(s1->force_data_vector.size());
     for (int step_num = 0; step_num <= step_length - 1; step_num++)
@@ -356,41 +568,59 @@ int DigitalTwinMilling::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer
         s1->setAngle(cutsim::GLVertex(a, b, c));
         s1->tool_angle = s1->tool_angle + s1->step;
         s1->force_data = s1->force_data_vector[step_num];
+        prepareMappedLookaheadAssimilation(s1, s1->force_data);
         myMillDigitalTwin->digitaltwin_milling_diff_volume_blade_cuda(s1);
         extractSurfaceAndCenter();  // 新增：提取表面和中心点
         qDebug() << "tool_angle: " << s1->tool_angle;
         s1->calculateTotalForce();
         s1->calculatestockVibration();
         qDebug() << "-----------------------\n";
-        double* Fx = new double(); double* Fy = new double(); double* Fz = new double();
         emit ApplyUpdateForces(s1->tool_angle, s1->force_xyz[0], s1->force_xyz[1], s1->force_xyz[2]);
-        Standard_Character Buffer[1024] = { 0 };
-        Sprintf(Buffer, "Stroke: %f mm, Fx: %f N, Fy: %f N, Fz: %f N\n", s1->tool_angle, *Fx, *Fy, *Fz);
-        Msg::ShowInfo(Buffer);
-        mdichild->MoveToolModel(true, x, y, z, a, b, c);
+        QMetaObject::invokeMethod(mdichild, [mdichild, x, y, z, a, b, c]() {
+            mdichild->MoveToolModel(true, x, y, z, a, b, c);
+        }, Qt::QueuedConnection);
     }
-    myMillDigitalTwin->updateGL();
-    h_MyViewer->Erase(workdeformed);
-    workdeformed = OcctViewer::getGraphic3d(gld);
-    h_MyViewer->Display(workdeformed);
-    emit ApplyUpdateViewer();
-    Msg::ShowInfo("Simulation done!");
+    updategl_num++;
+    if (updategl_num == 10) {
+        myMillDigitalTwin->updateGL();
+        QMetaObject::invokeMethod(mdichild, [this, h_MyViewer]() {
+            if (!workdeformed.IsNull()) {
+                h_MyViewer->getAisContext()->Remove(workdeformed, Standard_False);
+            }
+            workdeformed = OcctViewer::getGraphic3d(gld);
+            h_MyViewer->Display(workdeformed);
+            emit ApplyUpdateViewer();
+            Msg::ShowInfo("Simulation done!");
+            }, Qt::BlockingQueuedConnection);
+        updategl_num = 0;
+    }
+    releaseMechanicsMap(s1);
     return 1;
 }
 
 int DigitalTwinMilling::performFEMSimulation_test(MdiChild* mdichild, Handle(MyViewer) h_MyViewer, int* visulization_item, std::array<double, 2> visulization_limits)
 {
     myMillDigitalTwin->updateGL();
-    Handle(AIS_InteractiveObject) workdeformed = OcctViewer::getGraphic3d(gld);
-    h_MyViewer->Display(workdeformed);
-    h_MyViewer->Redraw();
+    if (!workdeformed.IsNull()) {
+        QMetaObject::invokeMethod(mdichild, [this, h_MyViewer]() {
+            h_MyViewer->getAisContext()->Remove(workdeformed, Standard_False);
+            }, Qt::BlockingQueuedConnection);
+    }
+    workdeformed = OcctViewer::getGraphic3d(gld);
+    Handle(AIS_InteractiveObject) currentWorkdeformed = workdeformed;
+    cutsim::digitaltwin_AptCutterVolume* s1 = dynamic_cast<cutsim::digitaltwin_AptCutterVolume*>(myTools[0]);
+    QMetaObject::invokeMethod(mdichild, [mdichild, h_MyViewer, currentWorkdeformed, s1]() {
+        showDeformationColorBar(mdichild, s1->deform_color_var, s1->deform_color_min, s1->deform_color_max);
+        h_MyViewer->Display(currentWorkdeformed);
+        h_MyViewer->Redraw();
+    }, Qt::BlockingQueuedConnection);
     for (int currentTool = 0; currentTool < myTools.size(); currentTool++)
     {
         cutsim::digitaltwin_AptCutterVolume* s1 = dynamic_cast<cutsim::digitaltwin_AptCutterVolume*>(myTools[currentTool]);
         s1->updatestockVibrParams();
     }
 
-    cutsim::digitaltwin_AptCutterVolume* s1 = dynamic_cast<cutsim::digitaltwin_AptCutterVolume*>(myTools[0]);
+    loadMechanicsMapIfNeeded(s1);
 
     s1->dt = s1->step / (s1->spindle_speed * 2 * M_PI / 60.0);
     peformModalAnalysis();
@@ -409,26 +639,62 @@ int DigitalTwinMilling::performFEMSimulation_test(MdiChild* mdichild, Handle(MyV
         s1->setAngle(cutsim::GLVertex(a, b, c));
         s1->tool_angle = s1->tool_angle + s1->step;
         s1->force_data = s1->force_data_vector[step_num];
+        prepareMappedLookaheadAssimilation(s1, s1->force_data);
         myMillDigitalTwin->digitaltwin_milling_diff_volume_blade_cuda(s1);
         extractSurfaceAndCenter();  // 新增：提取表面和中心点
         qDebug() << "tool_angle: " << s1->tool_angle;
         s1->calculateTotalForce();
         s1->calculatestockVibration();
         qDebug() << "-----------------------\n";
+        emit ApplyUpdateForces(
+            sqrt(x * x + y * y + z * z),
+            s1->force_xyz[0],
+            s1->force_xyz[1],
+            s1->force_xyz[2]);
         //double* Fx = new double(); double* Fy = new double(); double* Fz = new double();
         //emit ApplyUpdateForces(sqrt(x * x + y * y + z * z), s1->force_xyz[0], s1->force_xyz[1], s1->force_xyz[2]);
         //Standard_Character Buffer[1024] = { 0 };
         //Sprintf(Buffer, "Stroke: %f mm, Fx: %f N, Fy: %f N, Fz: %f N\n", sqrt(x * x + y * y + z * z), *Fx, *Fy, *Fz);
         //Msg::ShowInfo(Buffer);
-        myMillDigitalTwin->updateGL();
-        h_MyViewer->Erase(workdeformed);
-        workdeformed = OcctViewer::getGraphic3d(gld);
-        h_MyViewer->Display(workdeformed);
-        mdichild->MoveToolModel(true, x, y, z, a, b, c);
-        emit ApplyUpdateViewer();
+            myMillDigitalTwin->updateGL();
+            Handle(AIS_InteractiveObject) previousWorkdeformed = workdeformed;
+            workdeformed = OcctViewer::getGraphic3d(gld);
+            Handle(AIS_InteractiveObject) currentWorkdeformed = workdeformed;
+            QMetaObject::invokeMethod(mdichild, [this, mdichild, h_MyViewer, previousWorkdeformed, currentWorkdeformed, x, y, z, a, b, c]() {
+                if (!previousWorkdeformed.IsNull()) {
+                    h_MyViewer->getAisContext()->Remove(previousWorkdeformed, Standard_False);
+                }
+                h_MyViewer->Display(currentWorkdeformed);
+                mdichild->MoveToolModel(true, x, y, z, a, b, c);
+                emit ApplyUpdateViewer();
+                }, Qt::BlockingQueuedConnection);
+
     }
-    Msg::ShowInfo("Simulation done!");
+    QMetaObject::invokeMethod(mdichild, []() {
+        Msg::ShowInfo("Simulation done!");
+    }, Qt::QueuedConnection);
+    releaseMechanicsMap(s1);
     return 1;
+}
+
+bool DigitalTwinMilling::hasRenderableResult() const
+{
+    return gld != nullptr && gld->vertexCount() > 0;
+}
+
+bool DigitalTwinMilling::exportCurrentStl(const QString& stlFilePath, QString* errorMessage)
+{
+    if (!myMillDigitalTwin) {
+        setExportError(errorMessage, QStringLiteral("Digital twin simulation has not been created."));
+        return false;
+    }
+    if (stlFilePath.isEmpty()) {
+        setExportError(errorMessage, QStringLiteral("STL export path is empty."));
+        return false;
+    }
+
+    myMillDigitalTwin->updateGL();
+    return exportGLDataToAsciiStl(gld, stlFilePath, errorMessage);
 }
 
 

@@ -19,6 +19,9 @@
 #include <cmath>
 #include <iomanip>
 #include <sstream>
+#include <cmath>
+#include <iomanip>
+#include <sstream>
 #include <vector>
 #include <array>
 
@@ -33,6 +36,19 @@ QJsonArray vertexToJson(const cutsim::GLVertex& vertex)
     values.append(vertex.y);
     values.append(vertex.z);
     return values;
+}
+
+bool looksLikeBladePointRow(const QString& line)
+{
+    std::istringstream iss(line.toStdString());
+    std::vector<double> values;
+    double val = 0.0;
+
+    while (iss >> val) {
+        values.push_back(val);
+    }
+
+    return values.size() >= 12;
 }
 
 QJsonArray denseSigmaXxProfile()
@@ -237,7 +253,6 @@ int CutsimBroaching::performResidualRelease(int stepId, double stroke_mm)
 
     return ok;
 }
-
 CutsimBroaching::CutsimBroaching(int depth) {
     max_depth = depth;
     myGLWidget = new cutsim::GLWidget(DEFAULT_SCENE_RADIUS);
@@ -262,19 +277,23 @@ int CutsimBroaching::setStlStock(QString file1Path, double partoffset[3], double
     double cube_resolution = octree_cube_size * 2.0 / pow(2.0, max_depth - 1);
     stock2->setCubeResolution(cube_resolution);
     int error = stock2->readStlFile(file1Path);
-    if (error == 0) {
-        stock2->setColor(PARTS_COLOR);
-        stock2->calcBB();
-        stockVolume->stock = stock2;
-        stockVolume->operation = SUM_OPERATION;
-        myStocks.push_back(stockVolume);
-
-    }
-    else {
-        qDebug() << "STL error:" << error;
+    if (error != 0 || stock2->facets.empty()) {
+        qDebug() << "STL error:" << error << "facets:" << stock2->facets.size();
         delete stock2;
-        delete stockVolume;
+        return error != 0 ? error : 1;
     }
+
+    stock2->setColor(PARTS_COLOR);
+    stock2->calcBB();
+    if (stock2->facets.empty()) {
+        qDebug() << "STL error: no valid facets after calcBB";
+        delete stock2;
+        return 1;
+    }
+    stockVolume->stock = stock2;
+    stockVolume->operation = SUM_OPERATION;
+    myStocks.push_back(stockVolume);
+
     myBroachCutsim = new cutsim::Cutsim(octree_cube_size, max_depth, octree_center, gld, myGLWidget);
     //    myCutsim->init(4);
 
@@ -335,6 +354,13 @@ int CutsimBroaching::addBroach(QString file1Path)
 }
 int CutsimBroaching::addBroachs(QString filePath)
 {
+    cutsim::broaching_AptCutterVolume* currentBroach =
+        myTools.empty() ? nullptr : dynamic_cast<cutsim::broaching_AptCutterVolume*>(myTools[0]);
+
+    if (!currentBroach) {
+        qDebug() << "Cannot add broach points before broach tool is initialized.";
+        return -1;
+    }
 
     QFile file(filePath);
 
@@ -343,16 +369,40 @@ int CutsimBroaching::addBroachs(QString filePath)
         return -1;
     }
 
+    std::vector<QString> entries;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString entry = in.readLine().trimmed();
+        if (!entry.isEmpty()) {
+            entries.push_back(entry);
+        }
+    }
+    file.close();
+
+    if (entries.empty()) {
+        qDebug() << "Broach point file is empty:" << filePath;
+        return -1;
+    }
+
+    if (looksLikeBladePointRow(entries.front())) {
+        const int bladeCountBefore = currentBroach->blade_sum;
+        addBroach(filePath);
+
+        if (currentBroach->blade_sum <= bladeCountBefore) {
+            qDebug() << "No blade points imported from direct file:" << filePath;
+            return -1;
+        }
+
+        qDebug() << "Imported direct blade point file:" << filePath
+                 << "blade count:" << currentBroach->blade_sum;
+        return 1;
+    }
+
     QFileInfo listFileInfo(filePath);
     QDir listDir = listFileInfo.absoluteDir();
 
-    QTextStream in(&file);
-    while (!in.atEnd()) {
-        QString bladePath = in.readLine().trimmed();
-        if (bladePath.isEmpty()) {
-            continue;
-        }
-
+    int importedCount = 0;
+    for (QString bladePath : entries) {
         QFileInfo bladeInfo(bladePath);
         if (!bladeInfo.isAbsolute()) {
             QFileInfo siblingBlade(listDir.filePath(bladeInfo.fileName()));
@@ -367,8 +417,24 @@ int CutsimBroaching::addBroachs(QString filePath)
             }
         }
 
+        const int bladeCountBefore = currentBroach->blade_sum;
         addBroach(bladePath);
+        if (currentBroach->blade_sum > bladeCountBefore) {
+            ++importedCount;
+        }
+        else {
+            qDebug() << "No blade points imported from list entry:" << bladePath;
+        }
     }
+
+    if (importedCount == 0) {
+        qDebug() << "No blade point files imported from list:" << filePath;
+        return -1;
+    }
+
+    qDebug() << "Imported blade point list:" << filePath
+             << "imported blades:" << importedCount
+             << "blade count:" << currentBroach->blade_sum;
     return 1;
 }
 
@@ -758,7 +824,6 @@ int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h
     }
     return 1;
 }
-
 int CutsimBroaching::peformModalAnalysis()
 {
     ///added by syj

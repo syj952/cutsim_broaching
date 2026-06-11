@@ -33,8 +33,13 @@
 
 class GmshMessageHandler;
 class DigitalTwinController;
+class QLabel;
+class QComboBox;
 namespace digitaltwin_milling {
     class DigitalTwinMilling;
+}
+namespace milling {
+    class CutsimMilling;
 }
 struct MeshParameters;
 struct BroachParameters {
@@ -139,6 +144,7 @@ public slots: //mdichild_action2
     //void CaptureEdge();//<��׽��
     void CaptureVertex();//<�����������
     void RunCutsim();
+    void ExportCutsimResults();
     void RunMchConfig();
     void RunDigitalTwin();
     void RunSerialPort();
@@ -172,12 +178,19 @@ public slots:
     void ComputeConditions();
     void ComputeandOffsetEdge();
     int generateAbaqusINP(bool planestrain, double V, double t, double lambda, double beta, double gama, double r, double miu);
+	int generateAbaqusMultiCutsINP(QString filepathName, int DimensionType, int SimulationType,
+		double DistanceBetweenTool, std::vector<double> VelocityVector,
+		std::vector<double> UCTVector, std::vector<double> LambdaVector,
+		std::vector<double> GammaVector, std::vector<double> AlphaVector,
+		std::vector<double> HoneRadiusVector, std::vector<double> MiuVector,
+		std::vector<double> VBVector, std::vector<double> AlphaVBVector);
 private:
     bool getRepresentativeFaceNormal(const TopoDS_Face& face, gp_Dir& normal) const;
     double computeFaceDirectionAngleDeg(const TopoDS_Face& face, const gp_Dir& cuttingDir) const;
     void highlightFacesInContext(const std::vector<TopoDS_Face>& faces);
     void highlightEdgesInContext(const std::vector<TopoDS_Edge>& edges);
     bool collectAutoMatchedToolFaces(std::vector<TopoDS_Face>& targetFaces, const char* faceLabel);
+
 protected slots: //mdichild_slots
     void selectionChanged();
 protected:
@@ -189,6 +202,9 @@ public:
     void saveWindowState();//<���洰�ڲ���
     void restoreWindowState();//<�ָ����ڲ���
     void resetLayout();//<���ò���
+    void updateMachineCommData(const std::array<double, 6>& ppp, double rpm, double feed);
+    void updateMachineCommToolIndex(int index);
+    void updateMachineCommForceData(QStringList result);
     //<���Ӵ��ڲ��ֽ��г�ʼ��
 private slots:
     void documentWasModified();
@@ -227,7 +243,19 @@ public:
     QDockWidget* p_straightnessVisualDock;//������ͣ����
     class StraightnessMonitorWidget* straightnessWidget;
 
-    QDockWidget* p_VtkVisualDock; //VTK
+    QDockWidget* p_VtkVisualDock = nullptr; //VTK
+    QLabel* m_commPosXLabel = nullptr;
+    QLabel* m_commPosYLabel = nullptr;
+    QLabel* m_commPosZLabel = nullptr;
+    QLabel* m_commPosALabel = nullptr;
+    QLabel* m_commPosCLabel = nullptr;
+    QLabel* m_commToolLabel = nullptr;
+    QLabel* m_commFeedLabel = nullptr;
+    QLabel* m_commRpmLabel = nullptr;
+    QLabel* m_commForce1Label = nullptr;
+    QLabel* m_commForce2Label = nullptr;
+    QLabel* m_commForce3Label = nullptr;
+    QComboBox* m_commChannelBox = nullptr;
 
     class BoundaryConditionDialog* p_BCDialog = nullptr;//<�߽������Ի���
 
@@ -338,16 +366,15 @@ public:
     QString workfilePath;
     QString cutedgefilePath;
     QString file3Path;
+    milling::CutsimMilling* m_lastMillingCutsim = nullptr;
+    digitaltwin_milling::DigitalTwinMilling* m_lastDigitalTwinMilling = nullptr;
+    int m_lastCutsimExportSource = 0; // 1: milling, 2: digital twin milling
+    bool m_isMillingSimulationRunning = false;
+    bool m_isDigitalTwinSimulationRunning = false;
 
 private:
     VTKWidget* p_VtkWidget = nullptr;
     DigitalTwinController* m_digitalTwinController = nullptr;
 
-signals:
-    void straightnessDataUpdated(int blade_id, int point_index, double stroke_data, double straightness_data);
-    void bladePointSelectionUpdated(int blade_count, int point_count);
-
-public slots:
-    void onStraightnessDataUpdated(int blade_id, int point_index, double stroke_data, double straightness_data);
 };
 #endif

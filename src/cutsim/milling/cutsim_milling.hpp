@@ -95,12 +95,16 @@ namespace milling {
         };
         int setVisulization(int* visulization_item, std::array<double, 2> visulization_limits);
         int performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h_MyViewer, int* visulization_item, std::array<double, 2> visulization_limits);
+        bool exportCurrentStl(const QString& stlFilePath, QString* errorMessage = nullptr);
+        bool hasRenderableResult() const;
 
-        // ÉèÖÃÓÃ»§Ñ¡ÔñµÄµ¶ÈĞºÍµã
+        // è®¾ç½®ç”¨æˆ·é€‰æ‹©çš„åˆ€åˆƒå’Œç‚¹
         void setSelectedBladePoint(int blade_id, int point_index);
         void enableSelection(bool enabled);
+        int updategl_num=0;
 
         cutsim::GLData* gld;
+        Handle(AIS_InteractiveObject) workdeformed;
     private:
 
         cutsim::Cutsim* myMillCutsim;
@@ -143,15 +147,15 @@ namespace milling {
         double step_size;
         bool   variable_step_mode;
 
-        // Ìí¼ÓĞÂµÄ³ÉÔ±±äÁ¿ÓÃÓÚ¿ØÖÆ»ùÓÚmµÄ·ÂÕæ
-        int simulation_step_interval;     // ·ÂÕæ¼ä¸ô²½Êı£¨Èç30£©
-        int current_step_counter;         // µ±Ç°²½Êı¼ÆÊıÆ÷
+        // æ·»åŠ æ–°çš„æˆå‘˜å˜é‡ç”¨äºæ§åˆ¶åŸºäºmçš„ä»¿çœŸ
+        int simulation_step_interval;     // ä»¿çœŸé—´éš”æ­¥æ•°ï¼ˆå¦‚30ï¼‰
+        int current_step_counter;         // å½“å‰æ­¥æ•°è®¡æ•°å™¨
         static const int BATCH_SIZE = 300;
 
-        // ´æ´¢ÓÃ»§Ñ¡ÔñµÄµ¶ÈĞºÍµã
-        int selectedBladeId;              // Ñ¡ÖĞµÄµ¶ÈĞID
-        int selectedPointIndex;           // Ñ¡ÖĞµÄµãË÷Òı
-        bool selectionEnabled;            // ÊÇ·ñÆôÓÃÑ¡Ôñ¹¦ÄÜ
+        // å­˜å‚¨ç”¨æˆ·é€‰æ‹©çš„åˆ€åˆƒå’Œç‚¹
+        int selectedBladeId;              // é€‰ä¸­çš„åˆ€åˆƒID
+        int selectedPointIndex;           // é€‰ä¸­çš„ç‚¹ç´¢å¼•
+        bool selectionEnabled;            // æ˜¯å¦å¯ç”¨é€‰æ‹©åŠŸèƒ½
     signals:
         void ApplyUpdateForces(double stroke, double Fx, double Fy, double Fz);
         void ApplyUpdateViewer();

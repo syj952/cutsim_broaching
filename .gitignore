@@ -9,7 +9,10 @@ Intel*VTune*Profiler*Results/
 
 # Large third-party/runtime dependencies and generated data
 3rdparty/
-mfem/
+mfem/*
+!mfem/
+!mfem/residual_release.cpp
+!mfem/residual_release.exe
 packages/
 data/
 cad/

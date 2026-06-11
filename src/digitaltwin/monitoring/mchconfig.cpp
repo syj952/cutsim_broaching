@@ -40,9 +40,9 @@ MchConfig::MchConfig(QWidget* parent)
     lineEdit_wpcoor_Y = new QLineEdit("397.633", this);
     lineEdit_wpcoor_Z = new QLineEdit("300.465", this);
     lineEdit_lengthToolTip = new QLineEdit("219.469", this);
-    lineEdit_offset_X = new QLineEdit("6", this);
+    lineEdit_offset_X = new QLineEdit("0", this);
     lineEdit_offset_Y = new QLineEdit("0", this);
-    lineEdit_offset_Z = new QLineEdit("0", this);//43.363//61.428
+    lineEdit_offset_Z = new QLineEdit("58", this);//43.363//61.428
 
     //qss
     this->setStyleSheet(R"(
@@ -153,10 +153,11 @@ void MchConfig::onButtonClicked() {
 
     connect(thread, &QThread::started, this, [=]() {
         timer = new QTimer(nullptr);
-        timer->setInterval(20);//94.12
+        timer->setInterval(25);
 
         if (cncType == 0) {
-            //            Simensclient = new simensclient("192.168.101.50", 102);
+            //Simensclient = new simensclient("192.168.101.50", 102);
+            openMchDataFile("../../data/F01.txt");
             connect(timer, &QTimer::timeout, this, &MchConfig::GetMchData);
         }
         else if (cncType == 1) {
@@ -164,7 +165,7 @@ void MchConfig::onButtonClicked() {
             QVariant a = 0;
             if (hdhclient->GetToolIndex(a))
                 emit mchSingleDataSignal(a.toInt());
-            if (hdhclient->login())//建立连接后立即登陆了PLC！
+            if (hdhclient->login() && hdhclient->r_pr())//建立连接后立即登陆了PLC！
                 connect(timer, &QTimer::timeout, this, &MchConfig::GetHDHData);
             else
                 qDebug() << "PLC login false";
@@ -248,14 +249,12 @@ void MchConfig::GetMchData() {
     //    if (!isCollecting || QThread::currentThread() != thread) {
     //        return;
     //    }
+    
+    readGCodeFromTxt(ppppp, act_feed, act_rpm);
+    emit mchDataSignal_forGCode(ppppp, act_rpm, act_feed);
 
-    //ppppp[3] += 0.1;
-    //ppppp[4] += 0.1;
-    //ppppp[0] = 564.059;
-    //ppppp[1] = -397.368;
-    //ppppp[2] = -42.595 * 2 - (600 - 150 - 218.493);
-    ppppp[1] -= 0.182;
-    emit mchDataSignal(ppppp, 0, 0);
+    //readActualCoorFromTxt(ppppp);
+    //emit mchDataSignal(ppppp, 0, 0);
 }
 
 void MchConfig::GetHDHData() {
@@ -268,23 +267,157 @@ void MchConfig::GetHDHData() {
         //        ppppp[3] -= 360;
         if (ppppp[4] > 120)
             ppppp[4] -= 360;
-        ppppp[3] += 1.3303;
     }
 
-    QFile file(txtPath2);
-    if (file.open(QIODevice::Append | QIODevice::Text))
-    {
-        QTextStream out(&file);
-        out.setCodec("UTF-8");  // Release 不乱码
+    //QFile file(txtPath2);
+    //if (file.open(QIODevice::Append | QIODevice::Text))
+    //{
+    //    QTextStream out(&file);
+    //    out.setCodec("UTF-8");  // Release 不乱码
 
-        QString currentTime = QTime::currentTime().toString("HH:mm:ss.zzz");
+    //    QString currentTime = QTime::currentTime().toString("HH:mm:ss.zzz");
 
-        out << currentTime << "\t" << ppppp[0] << "\t" << ppppp[1] << "\t" << ppppp[2] << "\t" << ppppp[4] << "\t" << ppppp[3] << "\n";
-    }
+    //    out << currentTime << "\t" << ppppp[0] << "\t" << ppppp[1] << "\t" << ppppp[2] << "\t" << ppppp[4] << "\t" << ppppp[3] << "\n";
+    //}
 
     if (hdhclient->GetFeed(a))
         act_feed = a.toDouble();
     if (hdhclient->GetSpindleSpeed(a))
         act_rpm = a.toDouble();
     emit mchDataSignal(ppppp, act_rpm, act_feed);
+}
+
+void MchConfig::openMchDataFile(const QString& filePath)
+{
+    if (m_mchDataFile.isOpen())
+        m_mchDataFile.close();
+
+    m_mchDataFile.setFileName(filePath);
+
+    if (!m_mchDataFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qDebug() << "Open txt fail:" << filePath << m_mchDataFile.errorString();
+        m_mchDataFileOpened = false;
+        return;
+    }
+
+    m_mchDataStream.setDevice(&m_mchDataFile);
+    m_mchDataFileOpened = true;
+
+    qDebug() << "Open txt succeed:" << filePath;
+}
+
+bool MchConfig::readActualCoorFromTxt(std::array<double, 6>& macpos)
+{
+    if (!m_mchDataFileOpened || !m_mchDataFile.isOpen()) {
+        qDebug() << "txt didn't open";
+        return false;
+    }
+
+    if (m_mchDataStream.atEnd()) {
+        qDebug() << "txt reading ended";
+        return true;
+    }
+
+    QString time;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+    double a = 0.0;
+    double c = 0.0;
+
+    m_mchDataStream >> time >> x >> y >> z >> a >> c;
+
+    if (m_mchDataStream.status() != QTextStream::Ok) {
+        qDebug() << "txt read failed";
+        return false;
+    }
+
+    macpos[0] = x;
+    macpos[1] = y;
+    macpos[2] = z;
+    macpos[4] = a;
+    macpos[3] = c;
+
+    return true;
+}
+
+bool MchConfig::readGCodeFromTxt(std::array<double, 6>& macpos, double& F, double& S)
+{
+    if (!m_mchDataFileOpened || !m_mchDataFile.isOpen()) {
+        qDebug() << "txt didn't open";
+        return 0;
+    }
+
+    if (m_mchDataStream.atEnd()) {
+        qDebug() << "txt reading ended";
+        return 1;
+    }
+
+    QString line = m_mchDataStream.readLine().trimmed();
+
+    if (line.isEmpty()) return 1;
+
+    // 去掉行号，例如：123 L X192.968 Y36.292 ...
+    QStringList tokens = line.split(QRegExp("\\s+"), QString::SkipEmptyParts);
+
+    for (int i = 0; i < tokens.size(); ++i) {
+        QString token = tokens[i];
+
+        if (token.isEmpty()) {
+            continue;
+        }
+
+        QChar axis = token.at(0).toUpper();
+
+        if (axis != 'X' && axis != 'Y' && axis != 'Z' && axis != 'A' && axis != 'C' && axis != 'S' && axis != 'F') {
+            continue;
+        }
+
+        bool ok = false;
+        double value = 0.0;
+
+        if (token.length() >= 2) {
+            // 情况1：X192.968
+            value = token.mid(1).toDouble(&ok);
+        }
+        else if (i + 1 < tokens.size()) {
+            // 情况2：X 192.968
+            value = tokens[i + 1].toDouble(&ok);
+            if (ok) {
+                ++i;   // 跳过已经读取的数值
+            }
+        }
+
+        if (!ok) {
+            continue;
+        }
+
+        switch (axis.toLatin1()) {
+        case 'X':
+            macpos[0] = value;
+            break;
+        case 'Y':
+            macpos[1] = value;
+            break;
+        case 'Z':
+            macpos[2] = value;
+            break;
+        case 'C':
+            macpos[3] = value;
+            break;
+        case 'A':
+            macpos[4] = value;
+            break;
+        case 'F':
+            F = value;
+            break;
+        case 'S':
+            S = value;
+            break;
+        default:
+            break;
+        }
+    }
+
+    return 1;
 }

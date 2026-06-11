@@ -1,4 +1,4 @@
-/*
+﻿/*
  *  Copyright 2010-2011 Anders Wallin (anders.e.e.wallin "at" gmail.com)
  *  Copyright 2015      Kazuyasu Hamada (k-hamada@gifu-u.ac.jp)
  *
@@ -23,6 +23,7 @@
 #include <cassert>
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 
 #include <boost/foreach.hpp>
 
@@ -79,8 +80,73 @@ unsigned int delete_childlen_count = 0;
 static QMutex nodePoolMutex;
 #endif
 
+void Octnode::bindInternalStorage() {
+    center = &centerStorage;
+    indexs = &indexStorage;
+    for (int n = 0; n < 8; ++n) {
+        vertex[n] = &vertexStorage[n];
+        vindexs[n] = &vindexStorage[n];
+    }
+}
+
+static void assign_child_vertex_indices(Octnode* node) {
+    const GLVertex* direction = Octnode::getDirection();
+    const int parent_vertex = static_cast<int>(node->idx);
+
+    for (int n = 0; n < 8; ++n) {
+        const NodeIndex* base = node->parent->vindexs[parent_vertex];
+        node->vindexs[n]->x = base->x * 2;
+        node->vindexs[n]->y = base->y * 2;
+        node->vindexs[n]->z = base->z * 2;
+
+        switch (parent_vertex) {
+        case 0:
+            node->vindexs[n]->x += (direction[n].x < 0) ? -1 : 0;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 1 : 0;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 1 : 0;
+            break;
+        case 1:
+            node->vindexs[n]->x += (direction[n].x > 0) ? 1 : 0;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 1 : 0;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 1 : 0;
+            break;
+        case 2:
+            node->vindexs[n]->x += (direction[n].x > 0) ? 1 : 0;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 0 : -1;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 1 : 0;
+            break;
+        case 3:
+            node->vindexs[n]->x += (direction[n].x > 0) ? 0 : -1;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 0 : -1;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 1 : 0;
+            break;
+        case 4:
+            node->vindexs[n]->x += (direction[n].x > 0) ? 0 : -1;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 1 : 0;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 0 : -1;
+            break;
+        case 5:
+            node->vindexs[n]->x += (direction[n].x > 0) ? 1 : 0;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 1 : 0;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 0 : -1;
+            break;
+        case 6:
+            node->vindexs[n]->x += (direction[n].x > 0) ? 1 : 0;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 0 : -1;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 0 : -1;
+            break;
+        case 7:
+            node->vindexs[n]->x += (direction[n].x > 0) ? 0 : -1;
+            node->vindexs[n]->y += (direction[n].y > 0) ? 0 : -1;
+            node->vindexs[n]->z += (direction[n].z > 0) ? 0 : -1;
+            break;
+        }
+    }
+}
+
 // For child nodes
 Octnode::Octnode(Octnode* nodeparent, unsigned int index, double nodescale, unsigned int nodedepth, GLData* gl) {
+    bindInternalStorage();
     parent = nodeparent;
     idx = index;
     scale = nodescale;
@@ -90,25 +156,23 @@ Octnode::Octnode(Octnode* nodeparent, unsigned int index, double nodescale, unsi
 
     currentcutstate = UNCUTTING;
     if (parent) {
-        center = parent->childcenter(idx);
-        state = parent->prev_state;//OUtside但是应该重新判断
+        *center = parent->childcenterValue(idx);
+        state = parent->prev_state;//OUtside浣嗘槸搴旇閲嶆柊鍒ゆ柇
         prev_state = state;//undecide
         color = parent->color;
-        indexs = new GLVertex(0, 0, 0);
-        for (int n = 0; n < 8; ++n) {
-            vindexs[n] = new GLVertex(0, 0, 0);}
+        *indexs = NodeIndex(0, 0, 0);
     } else { //node has no parent
         assert( parent == NULL );
     }
 
     for ( int n = 0; n < 8; ++n) {
         child[n] = NULL;
-        vertex[n] = new GLVertex(*center + direction[n] * scale) ;//这是对八个顶点进行初始化
+        *vertex[n] = *center + direction[n] * scale;//杩欐槸瀵瑰叓涓《鐐硅繘琛屽垵濮嬪寲
         //        deformedVertex[n] = *vertex[n];
         ///< added hust
-        vertexnotsaved[n] = 1;//顶点遍历状态
-        vertex[n]->id=-9999999;//对顶点ID进行初始化，方便以后查找
-        //子结点顶点坐标变换
+        vertexnotsaved[n] = 1;//椤剁偣閬嶅巻鐘舵€?
+        vertex[n]->id=-9999999;//瀵归《鐐笽D杩涜鍒濆鍖栵紝鏂逛究浠ュ悗鏌ユ壘
+        //瀛愮粨鐐归《鐐瑰潗鏍囧彉鎹?
         switch (idx) {
         case 0:
             vindexs[n]->x = parent->vindexs[0]->x*2 + ((direction[n].x < 0) ? -1 : 0);
@@ -156,9 +220,9 @@ Octnode::Octnode(Octnode* nodeparent, unsigned int index, double nodescale, unsi
 
         ///< added hust
         assert( parent->state == UNDECIDED );
-        assert( parent->prev_state != UNDECIDED );//父亲的状态由非undecided变成undecided
+        assert( parent->prev_state != UNDECIDED );//鐖朵翰鐨勭姸鎬佺敱闈瀠ndecided鍙樻垚undecided
         //std::cout << parent->prev_state << "\n";
-        if (parent->prev_state == INSIDE) {//子结点的state继承父节点的prev_state
+        if (parent->prev_state == INSIDE) {//瀛愮粨鐐圭殑state缁ф壙鐖惰妭鐐圭殑prev_state
             f[n] = 1.0;
             state = INSIDE;
         }
@@ -192,32 +256,34 @@ Octnode::Octnode(Octnode* nodeparent, unsigned int index, double nodescale, unsi
 
 // For Root node
 Octnode::Octnode(GLVertex* root_center, double nodescale, GLData* gl) {
+    bindInternalStorage();
     parent = NULL;
     idx = 0;
     scale = nodescale;
     depth = 0;
     g = gl;
 
-    center = root_center;
-    state = UNDECIDED;//根节点的state
+    *center = *root_center;
+    delete root_center;
+    state = UNDECIDED;//鏍硅妭鐐圭殑state
     prev_state = OUTSIDE;
     ///<added hust
-    vindexs[0]=new GLVertex(1, 0, 0);
-    vindexs[1]=new GLVertex(0, 0, 0);
-    vindexs[2]=new GLVertex(0, 1, 0);
-    vindexs[3]=new GLVertex(1, 1, 0);
-    vindexs[4]=new GLVertex(1, 0, 1);
-    vindexs[5]=new GLVertex(0, 0, 1);
-    vindexs[6]=new GLVertex(0, 1, 1);
-    vindexs[7]=new GLVertex(1, 1, 1);
-    indexs = new GLVertex(0, 0, 0);//在根节点初始化indexs
+    *vindexs[0]=NodeIndex(1, 0, 0);
+    *vindexs[1]=NodeIndex(0, 0, 0);
+    *vindexs[2]=NodeIndex(0, 1, 0);
+    *vindexs[3]=NodeIndex(1, 1, 0);
+    *vindexs[4]=NodeIndex(1, 0, 1);
+    *vindexs[5]=NodeIndex(0, 0, 1);
+    *vindexs[6]=NodeIndex(0, 1, 1);
+    *vindexs[7]=NodeIndex(1, 1, 1);
+    *indexs = NodeIndex(0, 0, 0);
     ///<added hust
     for ( int n = 0; n < 8; ++n) {
         child[n] = NULL;
-        vertex[n] = new GLVertex(*center + direction[n] * scale) ;
+        *vertex[n] = *center + direction[n] * scale;
         f[n] = -1;
         ///< added hust
-        vertexnotsaved[n] = 1;//在根节点初始化
+        vertexnotsaved[n] = 1;//鍦ㄦ牴鑺傜偣鍒濆鍖?
         ///< added hust
     }
 
@@ -256,20 +322,11 @@ Octnode::~Octnode() {
                 assert( child[n]->childcount == 0);
                 delete child[n];
                 child[n] = 0;
-                delete vertex[n];
-                vertex[n] = 0;
             }
         }
     }
-    delete center;
-    center = 0;
 
     delete_count++;
-}
-
-// return centerpoint of child with index n by pointer
-GLVertex* Octnode::childcenter(int n) {
-    return  new GLVertex(*center + ( direction[n] * 0.5 * scale ));
 }
 
 // return centerpoint of child with index n by value
@@ -285,13 +342,12 @@ void Octnode::subdivide() {
 
         assert( state == UNDECIDED );
         for( int n = 0; n < 8; ++n ) {
-            //#ifdef POOL_NODE///是一个宏性能优化算法，但其目的都是一样的
-            //            Octnode* newnode = createOctnode( this, n , scale*0.5 , depth+1 , g); // parent,  idx, scale,   depth, GLdata
-            //#else
+#ifdef POOL_NODE
+            Octnode* newnode = createOctnode( this, n , scale*0.5 , depth+1 , g); // parent,  idx, scale,   depth, GLdata
+#else
             Octnode* newnode = new Octnode( this, n , scale*0.5 , depth+1 , g); // parent,  idx, scale,   depth, GLdata
-            //#endif
+#endif
             ///< added hust
-            //newnode->indexs = new GLVertex(0,0,0);
             newnode->indexs->x = this->indexs->x*2 + int(direction[n].x>0);
             newnode->indexs->y = this->indexs->y*2 + int(direction[n].y>0);
             newnode->indexs->z = this->indexs->z*2 + int(direction[n].z>0);
@@ -401,7 +457,7 @@ bool Octnode::check_f_value_with_limit() {
 }
 
 // look at the f-values in the corner of the cube and set state
-// to inside, outside、when those are obviously decided
+// to inside, outside銆亀hen those are obviously decided
 bool Octnode::check_complete_inside_outside() {
     bool inside = true;
     bool outside = true;
@@ -599,28 +655,38 @@ bool Octnode::valid() const {
 }
 
 void Octnode::addIndex(unsigned int id) {
+    if (!vertexSet)
+        vertexSet = std::make_unique<std::vector<unsigned int>>();
 #ifndef NDEBUG
-    std::set<unsigned int>::iterator found = vertexSet.find( id );
-    assert( found == vertexSet.end() ); // we should not have id
+    std::vector<unsigned int>::iterator found = std::find(vertexSet->begin(), vertexSet->end(), id);
+    assert( found == vertexSet->end() ); // we should not have id
 #endif
-    vertexSet.insert(id);
+    vertexSet->push_back(id);
 }
 
 void Octnode::swapIndex(unsigned int oldId, unsigned int newId) {
-#ifndef NDEBUG
-    std::set<unsigned int>::iterator found = vertexSet.find(oldId);
-    assert( found != vertexSet.end() ); // we must have oldId
-#endif
-    vertexSet.erase(oldId);
-    vertexSet.insert(newId);
+    assert(vertexSet);
+    if (!vertexSet)
+        return;
+    std::vector<unsigned int>::iterator found = std::find(vertexSet->begin(), vertexSet->end(), oldId);
+    assert( found != vertexSet->end() ); // we must have oldId
+    if (found != vertexSet->end()) {
+        *found = newId;
+    }
 }
 
 void Octnode::removeIndex(unsigned int id) {
-#ifndef NDEBUG
-    std::set<unsigned int>::iterator found = vertexSet.find( id );
-    assert( found != vertexSet.end() ); // we must have id
-#endif
-    vertexSet.erase(id);
+    assert(vertexSet);
+    if (!vertexSet)
+        return;
+    std::vector<unsigned int>::iterator found = std::find(vertexSet->begin(), vertexSet->end(), id);
+    assert( found != vertexSet->end() ); // we must have id
+    if (found != vertexSet->end()) {
+        *found = vertexSet->back();
+        vertexSet->pop_back();
+        if (vertexSet->empty())
+            vertexSet.reset();
+    }
 }
 
 void Octnode::clearVertexSet( ) {
@@ -745,23 +811,31 @@ Octnode* Octnode::createOctnode(Octnode* nodeparent, unsigned int index, double 
 #ifdef MULTI_THREAD
         nodePoolMutex.unlock();
 #endif
+        node->bindInternalStorage();
         node->parent = nodeparent;
         node->idx = index;
         node->scale = nodescale;
         node->depth = nodedepth;
         node->g = gl;
+        node->currentcutstate = UNCUTTING;
         if (node->parent) {
             *node->center = node->parent->childcenterValue(node->idx);
             node->state = node->parent->prev_state;
             node->prev_state = node->state;
             node->color = node->parent->color;
+            *node->indexs = NodeIndex(0, 0, 0);
         } else { // node has no parent
             assert( node->parent == NULL );
         }
 
+        if (node->parent) {
+            assign_child_vertex_indices(node);
+        }
         for (int n = 0; n < 8; ++n) {
             node->child[n] = NULL;
             *node->vertex[n] = *(node->center) + node->direction[n] * node->scale;
+            node->vertexnotsaved[n] = 1;
+            node->vertex[n]->id = -9999999;
             if (node->parent) {
                 assert( node->parent->state == UNDECIDED );
                 assert( node->parent->prev_state != UNDECIDED );
@@ -783,11 +857,11 @@ Octnode* Octnode::createOctnode(Octnode* nodeparent, unsigned int index, double 
         node->bb.clear();
 #ifdef MULTI_AXIS
         // Multi Axis
-        node->bb.addPoint(*center + GLVertex(-2.0,-2.0,-2.0) * scale); // calculate the minimum x,y,z coordinates
-        node->bb.addPoint(*center + GLVertex( 2.0, 2.0, 2.0) * scale); // calculate the maximum x,y,z coordinates
+        node->bb.addPoint(*node->center + GLVertex(-2.0,-2.0,-2.0) * node->scale); // calculate the minimum x,y,z coordinates
+        node->bb.addPoint(*node->center + GLVertex( 2.0, 2.0, 2.0) * node->scale); // calculate the maximum x,y,z coordinates
 #else
-        node->bb.addPoint( *vertex[2] ); // vertex[2] has the minimum x,y,z coordinates
-        node->bb.addPoint( *vertex[4] ); // vertex[4] has the max x,y,z
+        node->bb.addPoint( *node->vertex[2] ); // vertex[2] has the minimum x,y,z coordinates
+        node->bb.addPoint( *node->vertex[4] ); // vertex[4] has the max x,y,z
 #endif
         node->isosurface_valid = false;
 

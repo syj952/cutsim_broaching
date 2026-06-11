@@ -2447,6 +2447,7 @@ void MdiChild::highlightFacesInContext(const std::vector<TopoDS_Face>& faces)
     g_autoMatchedFacePreview->SetTransparency(0.15f);
 
     myContext->Display(g_autoMatchedFacePreview, Standard_False);
+    myContext->Deactivate(g_autoMatchedFacePreview);
     myContext->Redisplay(g_autoMatchedFacePreview, Standard_False);
     myContext->UpdateCurrentViewer();
 
@@ -2490,6 +2491,7 @@ void MdiChild::highlightEdgesInContext(const std::vector<TopoDS_Edge>& edges)
     g_autoMatchedEdgePreview->SetWidth(3.0);
 
     myContext->Display(g_autoMatchedEdgePreview, Standard_False);
+    myContext->Deactivate(g_autoMatchedEdgePreview);
     myContext->Redisplay(g_autoMatchedEdgePreview, Standard_False);
     myContext->UpdateCurrentViewer();
 
@@ -2513,12 +2515,6 @@ bool MdiChild::collectAutoMatchedToolFaces(std::vector<TopoDS_Face>& targetFaces
         return false;
     }
 
-    Handle(AIS_Shape) selectedShape = Handle(AIS_Shape)::DownCast(myContext->SelectedInteractive());
-    if (selectedShape.IsNull()) {
-        QMessageBox::warning(this, "Auto Select", "Selected interactive object is not an AIS_Shape.");
-        return false;
-    }
-
     gp_Dir cuttingDir(-1.0, 0.0, 0.0);
     if (AngleDialog::m_cuttingVec.Magnitude() > Precision::Confusion()) {
         cuttingDir = gp_Dir(AngleDialog::m_cuttingVec);
@@ -2539,7 +2535,28 @@ bool MdiChild::collectAutoMatchedToolFaces(std::vector<TopoDS_Face>& targetFaces
     };
 
     std::vector<SeedFeature> seedFeatures;
+    std::vector<TopoDS_Face> seedFaces;
     int seedFaceCount = 0;
+    Handle(AIS_Shape) selectedShape;
+
+    auto isAutoPreviewShape = [](const Handle(AIS_Shape)& shape) -> bool
+    {
+        return (!g_autoMatchedFacePreview.IsNull() && shape == g_autoMatchedFacePreview) ||
+            (!g_autoMatchedEdgePreview.IsNull() && shape == g_autoMatchedEdgePreview);
+    };
+
+    auto captureOwnerFromSelection = [&]()
+    {
+        if (!selectedShape.IsNull()) {
+            return;
+        }
+
+        Handle(AIS_Shape) currentSelectedShape =
+            Handle(AIS_Shape)::DownCast(myContext->SelectedInteractive());
+        if (!currentSelectedShape.IsNull() && !isAutoPreviewShape(currentSelectedShape)) {
+            selectedShape = currentSelectedShape;
+        }
+    };
 
     for (myContext->InitSelected(); myContext->MoreSelected(); myContext->NextSelected()) {
         TopoDS_Shape currentShape = myContext->SelectedShape();
@@ -2547,6 +2564,7 @@ bool MdiChild::collectAutoMatchedToolFaces(std::vector<TopoDS_Face>& targetFaces
             continue;
         }
 
+        captureOwnerFromSelection();
         ++seedFaceCount;
 
         TopoDS_Face seedFace = TopoDS::Face(currentShape);
@@ -2562,6 +2580,7 @@ bool MdiChild::collectAutoMatchedToolFaces(std::vector<TopoDS_Face>& targetFaces
 
         const double seedArea = computeFaceArea(seedFace);
         seedFeatures.push_back({ seedAngleDeg, seedNormal, seedArea });
+        seedFaces.push_back(seedFace);
     }
 
     if (seedFeatures.empty()) {
@@ -2569,7 +2588,49 @@ bool MdiChild::collectAutoMatchedToolFaces(std::vector<TopoDS_Face>& targetFaces
         return false;
     }
 
+    if (selectedShape.IsNull() && p_TreeWidget != nullptr) {
+        for (auto it = p_TreeWidget->modelMap.constBegin(); it != p_TreeWidget->modelMap.constEnd(); ++it) {
+            Handle(AIS_Shape) candidateShape = it.value().shape;
+            if (candidateShape.IsNull() || isAutoPreviewShape(candidateShape)) {
+                continue;
+            }
+
+            const TopoDS_Shape candidateOwner = candidateShape->Shape();
+            if (candidateOwner.IsNull()) {
+                continue;
+            }
+
+            bool containsSeed = false;
+            for (const TopoDS_Face& seedFace : seedFaces) {
+                for (TopExp_Explorer explorer(candidateOwner, TopAbs_FACE); explorer.More(); explorer.Next()) {
+                    if (seedFace.IsSame(explorer.Current())) {
+                        containsSeed = true;
+                        break;
+                    }
+                }
+                if (containsSeed) {
+                    break;
+                }
+            }
+
+            if (containsSeed) {
+                selectedShape = candidateShape;
+                break;
+            }
+        }
+    }
+
+    if (selectedShape.IsNull()) {
+        QMessageBox::warning(this, "Auto Select", "Unable to resolve the owning AIS_Shape for selected seed face.");
+        return false;
+    }
+
     TopoDS_Shape ownerShape = selectedShape->Shape();
+    if (ownerShape.IsNull()) {
+        QMessageBox::warning(this, "Auto Select", "Selected owning AIS_Shape has no geometry.");
+        return false;
+    }
+
     int exploredFaceCount = 0;
 
     struct CandidateFeature

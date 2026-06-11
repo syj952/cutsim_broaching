@@ -88,6 +88,11 @@ int Stl::readStlFile(QString file)
 
     stlFileHandle.close();
 
+    if (facet_count == 0) {
+        error_count++;
+        std::cout << "No facets were read from STL file:" << file.toStdString() << "\n";
+    }
+
     return error_count;
 }
 

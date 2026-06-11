@@ -15,6 +15,7 @@
 #include "PropertyView.h"
 #include "BoundaryConditionDialog.h"
 #include <QFileInfo>
+#include <QDir>
 #include <QMessageBox>
 #include "AngleDialog.h"
 #include <QPushButton>
@@ -60,9 +61,9 @@ void MdiChild::RunCutsim()
     dialog.setWindowTitle("仿真设置");
     dialog.setMinimumSize(800, 300);
 
-    // 创建菜单栏
+    // 鍒涘缓鑿滃崟鏍?
     QMenuBar* menuBar = new QMenuBar(&dialog);
-    // 确保所有动作在同一作用域内定义
+    // 纭繚鎵€鏈夊姩浣滃湪鍚屼竴浣滅敤鍩熷唴瀹氫箟
     QAction* broachingAction = menuBar->addAction("拉销仿真");
     QAction* millingAction = menuBar->addAction("铣削仿真");
     QAction* digitaltwinAction = menuBar->addAction("数字孪生");
@@ -71,44 +72,44 @@ void MdiChild::RunCutsim()
     digitaltwinAction->setCheckable(true);
     digitaltwinAction->setChecked(true);
 
-    // 创建页面容器
+    // 鍒涘缓椤甸潰瀹瑰櫒
     QStackedWidget* stackedWidget = new QStackedWidget(&dialog);
 
-    // 拉销仿真页面
+    // 鎷夐攢浠跨湡椤甸潰
     QWidget* broachingPage = new QWidget();
     QVBoxLayout* broachingLayout = new QVBoxLayout(broachingPage);
 
-    // 铣削仿真页面
+    // 閾ｅ墛浠跨湡椤甸潰
     QWidget* millingPage = new QWidget();
     QVBoxLayout* millingLayout = new QVBoxLayout(millingPage);
 
-    // 数字孪生页面
+    // 鏁板瓧瀛敓椤甸潰
     QWidget* digitaltwinPage = new QWidget();
     QVBoxLayout* digitaltwinLayout = new QVBoxLayout(digitaltwinPage);
 
-    // 将页面添加到栈容器
+    // 灏嗛〉闈㈡坊鍔犲埌鏍堝鍣?
     stackedWidget->addWidget(broachingPage);
     stackedWidget->addWidget(millingPage);
     stackedWidget->addWidget(digitaltwinPage);
 
-    // 创建主布局
+    // 鍒涘缓涓诲竷灞€
     QVBoxLayout* mainLayout = new QVBoxLayout(&dialog);
     mainLayout->setMenuBar(menuBar);
     mainLayout->addWidget(stackedWidget);
 
     ///————————————拉销页面————————————
 #pragma region 
-// 工件文件选择
+// 宸ヤ欢鏂囦欢閫夋嫨
     QHBoxLayout* workfileLayout = new QHBoxLayout();
     QLabel* workfileLabel = new QLabel("选择工件模型");
     QLineEdit* workfileEdit = new QLineEdit();
     workfileEdit->setReadOnly(true);
     QPushButton* workfileButton = new QPushButton("选择文件...");
     workfileLayout->addWidget(workfileLabel);
-    workfileLayout->addWidget(workfileEdit, 1); // 1表示拉伸因子
+    workfileLayout->addWidget(workfileEdit, 1); // 1琛ㄧず鎷変几鍥犲瓙
     workfileLayout->addWidget(workfileButton);
     broachingLayout->addLayout(workfileLayout);
-    // 刀具文件选择
+    // 鍒€鍏锋枃浠堕€夋嫨
     QHBoxLayout* broachfileLayout = new QHBoxLayout();
     QLabel* broachfileLabel = new QLabel("刀具点数据:");
     QLineEdit* broachfileEdit = new QLineEdit();
@@ -119,7 +120,7 @@ void MdiChild::RunCutsim()
     broachfileLayout->addWidget(broachfileButton);
     broachingLayout->addLayout(broachfileLayout);
 
-    // 切削力系数
+    // 鍒囧墛鍔涚郴鏁?
     QHBoxLayout* KcnameLayout = new QHBoxLayout();
     QLabel* forcecoeffnameLabel = new QLabel("coeff:");
     QLabel* a0nameLabel = new QLabel("a0");
@@ -148,7 +149,7 @@ void MdiChild::RunCutsim()
     KcnameLayout->addWidget(a10nameLabel);
     broachingLayout->addLayout(KcnameLayout);
 
-    // 切削力系数 KC
+    // 鍒囧墛鍔涚郴鏁?KC
     QHBoxLayout* KcLayout = new QHBoxLayout();
     QLabel* KcnameLabel = new QLabel("Kc:");
     QLineEdit* a0KcEdit = new QLineEdit("17587");
@@ -177,7 +178,7 @@ void MdiChild::RunCutsim()
     KcLayout->addWidget(a10KcEdit);
     broachingLayout->addLayout(KcLayout);
 
-    // 切削力系数 KCn
+    // 鍒囧墛鍔涚郴鏁?KCn
     QHBoxLayout* KcNLayout = new QHBoxLayout();
     QLabel* KcNnameLabel = new QLabel("KcN:");
     QLineEdit* a0KcNEdit = new QLineEdit("16476");
@@ -206,7 +207,7 @@ void MdiChild::RunCutsim()
     KcNLayout->addWidget(a10KcNEdit);
     broachingLayout->addLayout(KcNLayout);
 
-    // 修正系数
+    // 淇绯绘暟
     QHBoxLayout* correctnameLayout = new QHBoxLayout();
     QLabel* correctnameLabel = new QLabel("coeff:");
     QLabel* corra0nameLabel = new QLabel("a0");
@@ -219,7 +220,7 @@ void MdiChild::RunCutsim()
     correctnameLayout->addWidget(corra2nameLabel);
     broachingLayout->addLayout(correctnameLayout);
 
-    // 修正系数 KC
+    // 淇绯绘暟 KC
     QHBoxLayout* corrKcLayout = new QHBoxLayout();
     QLabel* corrKcnameLabel = new QLabel("Kc:");
     QLineEdit* corra0KcEdit = new QLineEdit("1.5");
@@ -232,7 +233,7 @@ void MdiChild::RunCutsim()
     corrKcLayout->addWidget(corra2KcEdit);
     broachingLayout->addLayout(corrKcLayout);
 
-    // 修正系数 KCn
+    // 淇绯绘暟 KCn
     QHBoxLayout* corrKcNLayout = new QHBoxLayout();
     QLabel* corrKcNnameLabel = new QLabel("KcN:");
     QLineEdit* corra0KcNEdit = new QLineEdit("1.439");
@@ -245,7 +246,7 @@ void MdiChild::RunCutsim()
     corrKcNLayout->addWidget(corra2KcNEdit);
     broachingLayout->addLayout(corrKcNLayout);
 
-    // 速度
+    // 閫熷害
     QHBoxLayout* velocityLayout = new QHBoxLayout();
     QLabel* velocityLabel = new QLabel("Velocity (x, y, z):");
     QLineEdit* vxEdit = new QLineEdit("0");
@@ -257,7 +258,7 @@ void MdiChild::RunCutsim()
     velocityLayout->addWidget(vzEdit);
     broachingLayout->addLayout(velocityLayout);
 
-    // 仿真设定
+    // 浠跨湡璁惧畾
     QHBoxLayout* simulationLayout = new QHBoxLayout();
     QLabel* simulationLabel = new QLabel("Simulation (total time, steptime for cut and mfem):");
     QLineEdit* totaltimeEdit = new QLineEdit("70");
@@ -269,16 +270,15 @@ void MdiChild::RunCutsim()
     simulationLayout->addWidget(steptime_MFEM_Edit);
     broachingLayout->addLayout(simulationLayout);
 
+    // 绾︽潫
     QCheckBox* residualStressCheck = new QCheckBox("启用加工残余应力测试");
     residualStressCheck->setChecked(true);
     broachingLayout->addWidget(residualStressCheck);
-
-    // 约束
     QHBoxLayout* constraintLayout = new QHBoxLayout();
     QLabel* constraintsLabel = new QLabel("Constrains:");
     constraintLayout->addWidget(constraintsLabel);
     broachingLayout->addLayout(constraintLayout);
-    // 约束 x
+    // 绾︽潫 x
     QHBoxLayout* xconstraint = new QHBoxLayout();
     QLabel* xLabel = new QLabel("X:");
     QLineEdit* x1Edit = new QLineEdit("-100");
@@ -289,7 +289,7 @@ void MdiChild::RunCutsim()
     xconstraint->addWidget(x1Edit);
     xconstraint->addWidget(x2Edit);
     broachingLayout->addLayout(xconstraint);
-    // 约束 y
+    // 绾︽潫 y
     QHBoxLayout* yconstraint = new QHBoxLayout();
     QLabel* yLabel = new QLabel("Y:");
     QLineEdit* y1Edit = new QLineEdit("-100");
@@ -300,7 +300,7 @@ void MdiChild::RunCutsim()
     yconstraint->addWidget(y1Edit);
     yconstraint->addWidget(y2Edit);
     broachingLayout->addLayout(yconstraint);
-    // 约束 z
+    // 绾︽潫 z
     QHBoxLayout* zconstraint = new QHBoxLayout();
     QLabel* zLabel = new QLabel("Z:");
     QLineEdit* z1Edit = new QLineEdit("-11");
@@ -312,14 +312,14 @@ void MdiChild::RunCutsim()
     zconstraint->addWidget(z2Edit);
     broachingLayout->addLayout(zconstraint);
 
-    // 按钮区域
+    // 鎸夐挳鍖哄煙
     QHBoxLayout* buttonLayout = new QHBoxLayout();
-    QPushButton* runButton = new QPushButton("开始运行");
+    QPushButton* runButton = new QPushButton("Run");
     buttonLayout->addWidget(runButton);
     buttonLayout->addStretch();
     broachingLayout->addLayout(buttonLayout);
 
-    // 连接按钮信号
+    // 杩炴帴鎸夐挳淇″彿
     connect(workfileButton, &QPushButton::clicked, [&]() {
         QString path = QFileDialog::getOpenFileName(
             &dialog, "选择工件模型", "", "STL Files (*.stl)");
@@ -331,7 +331,7 @@ void MdiChild::RunCutsim()
 
     connect(broachfileButton, &QPushButton::clicked, [&]() {
         QString path = QFileDialog::getOpenFileName(
-            &dialog, "选择刀片文件", "", "Text Files (*.txt)");
+            &dialog, "Select cutter file", "", "Text Files (*.txt)");
         if (!path.isEmpty()) {
             cutedgefilePath = path;
             broachfileEdit->setText(path);
@@ -389,17 +389,17 @@ void MdiChild::RunCutsim()
 #pragma endregion
     ///————————————铣销页面————————————
 #pragma region 
-// 工件文件选择
+// 宸ヤ欢鏂囦欢閫夋嫨
     QHBoxLayout* mill_workfileLayout = new QHBoxLayout();
     QLabel* mill_workfileLabel = new QLabel("选择工件模型");
     QLineEdit* mill_workfileEdit = new QLineEdit();
     workfileEdit->setReadOnly(true);
     QPushButton* mill_workfileButton = new QPushButton("选择文件...");
     mill_workfileLayout->addWidget(mill_workfileLabel);
-    mill_workfileLayout->addWidget(mill_workfileEdit, 1); // 1表示拉伸因子
+    mill_workfileLayout->addWidget(mill_workfileEdit, 1); // 1琛ㄧず鎷変几鍥犲瓙
     mill_workfileLayout->addWidget(mill_workfileButton);
     millingLayout->addLayout(mill_workfileLayout);
-    // 刀具文件选择
+    // 鍒€鍏锋枃浠堕€夋嫨
     QHBoxLayout* mill_fileLayout = new QHBoxLayout();
     QLabel* mill_fileLabel = new QLabel("刀具点数据:");
     QLineEdit* mill_fileEdit = new QLineEdit();
@@ -410,7 +410,7 @@ void MdiChild::RunCutsim()
     mill_fileLayout->addWidget(mill_fileButton);
     millingLayout->addLayout(mill_fileLayout);
 
-    // 切削力系数
+    // 鍒囧墛鍔涚郴鏁?
     QHBoxLayout* mill_KcnameLayout = new QHBoxLayout();
     QLabel* mill_forcecoeffnameLabel = new QLabel("coeff:");
     QLabel* mill_a0nameLabel = new QLabel("K_rc");
@@ -431,7 +431,7 @@ void MdiChild::RunCutsim()
 
     millingLayout->addLayout(mill_KcnameLayout);
 
-    // 切削力系数 KC
+    // 鍒囧墛鍔涚郴鏁?KC
     QHBoxLayout* mill_KcLayout = new QHBoxLayout();
     QLabel* mill_KcnameLabel = new QLabel("Kc:");
     QLineEdit* mill_a0KcEdit = new QLineEdit("381.2");
@@ -451,7 +451,7 @@ void MdiChild::RunCutsim()
     mill_KcLayout->addWidget(mill_a5KcEdit);
     millingLayout->addLayout(mill_KcLayout);
 
-    // 刀刃数，主轴转速
+    // 鍒€鍒冩暟锛屼富杞磋浆閫?
     QHBoxLayout* mill_spindleLabelout = new QHBoxLayout();
     QLabel* mill_spindleLabel = new QLabel(" blade_sum, Spindle:");
     QLineEdit* mill_blade_sum_Edit = new QLineEdit("2");
@@ -461,7 +461,7 @@ void MdiChild::RunCutsim()
     mill_spindleLabelout->addWidget(mill_spindle_speed_Edit);
     millingLayout->addLayout(mill_spindleLabelout);
 
-    // 速度
+    // 閫熷害
     QHBoxLayout* mill_velocityLayout = new QHBoxLayout();
     QLabel* mill_velocityLabel = new QLabel("Velocity (x, y, z)(mm/r):");
     QLineEdit* mill_vxEdit = new QLineEdit("0");
@@ -473,7 +473,7 @@ void MdiChild::RunCutsim()
     mill_velocityLayout->addWidget(mill_vzEdit);
     millingLayout->addLayout(mill_velocityLayout);
 
-    // 仿真设定
+    // 浠跨湡璁惧畾
     QHBoxLayout* mill_simulationLayout = new QHBoxLayout();
     QLabel* mill_simulationLabel = new QLabel("Simulation (total time, steptime for cut and mfem):");
     QLineEdit* mill_totaltimeEdit = new QLineEdit("1000");
@@ -485,12 +485,12 @@ void MdiChild::RunCutsim()
     mill_simulationLayout->addWidget(mill_steptime_MFEM_Edit);
     millingLayout->addLayout(mill_simulationLayout);
 
-    // 约束
+    // 绾︽潫
     QHBoxLayout* mill_constraintLayout = new QHBoxLayout();
     QLabel* mill_constraintsLabel = new QLabel("Constrains:");
     mill_constraintLayout->addWidget(mill_constraintsLabel);
     millingLayout->addLayout(mill_constraintLayout);
-    // 约束 x
+    // 绾︽潫 x
     QHBoxLayout* mill_xconstraint = new QHBoxLayout();
     QLabel* mill_xLabel = new QLabel("X:");
     QLineEdit* mill_x1Edit = new QLineEdit("-100");
@@ -501,7 +501,7 @@ void MdiChild::RunCutsim()
     mill_xconstraint->addWidget(mill_x1Edit);
     mill_xconstraint->addWidget(mill_x2Edit);
     millingLayout->addLayout(mill_xconstraint);
-    // 约束 y
+    // 绾︽潫 y
     QHBoxLayout* mill_yconstraint = new QHBoxLayout();
     QLabel* mill_yLabel = new QLabel("Y:");
     QLineEdit* mill_y1Edit = new QLineEdit("-100");
@@ -512,7 +512,7 @@ void MdiChild::RunCutsim()
     mill_yconstraint->addWidget(mill_y1Edit);
     mill_yconstraint->addWidget(mill_y2Edit);
     millingLayout->addLayout(mill_yconstraint);
-    // 约束 z
+    // 绾︽潫 z
     QHBoxLayout* mill_zconstraint = new QHBoxLayout();
     QLabel* mill_zLabel = new QLabel("z:");
     QLineEdit* mill_z1Edit = new QLineEdit("-100");
@@ -524,14 +524,14 @@ void MdiChild::RunCutsim()
     mill_zconstraint->addWidget(mill_z2Edit);
     millingLayout->addLayout(mill_zconstraint);
 
-    // 按钮区域
+    // 鎸夐挳鍖哄煙
     QHBoxLayout* mill_buttonLayout = new QHBoxLayout();
-    QPushButton* mill_runButton = new QPushButton("开始运行");
+    QPushButton* mill_runButton = new QPushButton("Run");
     mill_buttonLayout->addWidget(mill_runButton);
     mill_buttonLayout->addStretch();
     millingLayout->addLayout(mill_buttonLayout);
 
-    // 连接按钮信号
+    // 杩炴帴鎸夐挳淇″彿
     connect(mill_workfileButton, &QPushButton::clicked, [&]() {
         QString path = QFileDialog::getOpenFileName(
             &dialog, "选择工件模型", "", "STL Files (*.stl)");
@@ -543,7 +543,7 @@ void MdiChild::RunCutsim()
 
     connect(mill_fileButton, &QPushButton::clicked, [&]() {
         QString path = QFileDialog::getOpenFileName(
-            &dialog, "选择刀片文件", "", "Text Files (*.txt)");
+            &dialog, "Select cutter file", "", "Text Files (*.txt)");
         if (!path.isEmpty()) {
             cutedgefilePath = path;
             mill_fileEdit->setText(path);
@@ -586,17 +586,17 @@ void MdiChild::RunCutsim()
     workfileEdit->setReadOnly(true);
     QPushButton* digitaltwin_workfileButton = new QPushButton("选择文件...");
     digitaltwin_workfileLayout->addWidget(digitaltwin_workfileLabel);
-    digitaltwin_workfileLayout->addWidget(digitaltwin_workfileEdit, 1); // 1表示拉伸因子
+    digitaltwin_workfileLayout->addWidget(digitaltwin_workfileEdit, 1); // 1琛ㄧず鎷変几鍥犲瓙
     digitaltwin_workfileLayout->addWidget(digitaltwin_workfileButton);
     digitaltwinLayout->addLayout(digitaltwin_workfileLayout);
 
 
-    // 约束
+    // 绾︽潫
     QHBoxLayout* digitaltwin_constraintLayout = new QHBoxLayout();
     QLabel* digitaltwin_constraintsLabel = new QLabel("Constrains:");
     digitaltwin_constraintLayout->addWidget(digitaltwin_constraintsLabel);
     digitaltwinLayout->addLayout(digitaltwin_constraintLayout);
-    // 约束 x
+    // 绾︽潫 x
     QHBoxLayout* digitaltwin_xconstraint = new QHBoxLayout();
     QLabel* digitaltwin_xLabel = new QLabel("X:");
     QLineEdit* digitaltwin_x1Edit = new QLineEdit("-100");
@@ -607,7 +607,7 @@ void MdiChild::RunCutsim()
     digitaltwin_xconstraint->addWidget(digitaltwin_x1Edit);
     digitaltwin_xconstraint->addWidget(digitaltwin_x2Edit);
     digitaltwinLayout->addLayout(digitaltwin_xconstraint);
-    // 约束 y
+    // 绾︽潫 y
     QHBoxLayout* digitaltwin_yconstraint = new QHBoxLayout();
     QLabel* digitaltwin_yLabel = new QLabel("Y:");
     QLineEdit* digitaltwin_y1Edit = new QLineEdit("-100");
@@ -618,7 +618,7 @@ void MdiChild::RunCutsim()
     digitaltwin_yconstraint->addWidget(digitaltwin_y1Edit);
     digitaltwin_yconstraint->addWidget(digitaltwin_y2Edit);
     digitaltwinLayout->addLayout(digitaltwin_yconstraint);
-    // 约束 z
+    // 绾︽潫 z
     QHBoxLayout* digitaltwin_zconstraint = new QHBoxLayout();
     QLabel* digitaltwin_zLabel = new QLabel("z:");
     QLineEdit* digitaltwin_z1Edit = new QLineEdit("-100");
@@ -630,23 +630,23 @@ void MdiChild::RunCutsim()
     digitaltwin_zconstraint->addWidget(digitaltwin_z2Edit);
     digitaltwinLayout->addLayout(digitaltwin_zconstraint);
 
-    // 刀具参数输入
+    // 鍒€鍏峰弬鏁拌緭鍏?
     QHBoxLayout* cutterParamsLayout = new QHBoxLayout();
-    QLabel* cutterParamsLabel = new QLabel("刀具参数");
-    QLineEdit* cutterParamsEdit = new QLineEdit("0,6,6,31,0,31;");
+    QLabel* cutterParamsLabel = new QLabel("Cutter params:");
+    QLineEdit* cutterParamsEdit = new QLineEdit("1,6,6,31,0,6;0,6,6,31,6,31;");
     cutterParamsEdit->setPlaceholderText("格式: 类型,半径1,半径2,长度,z_start,z_end;...");
     cutterParamsLayout->addWidget(cutterParamsLabel);
     cutterParamsLayout->addWidget(cutterParamsEdit, 1);
     digitaltwinLayout->addLayout(cutterParamsLayout);
 
-    // 按钮区域
+    // 鎸夐挳鍖哄煙
     QHBoxLayout* digitaltwin_buttonLayout = new QHBoxLayout();
     QPushButton* digitaltwin_runButton = new QPushButton("运行仿真");
     digitaltwin_buttonLayout->addWidget(digitaltwin_runButton);
     digitaltwin_buttonLayout->addStretch();
     digitaltwinLayout->addLayout(digitaltwin_buttonLayout);
 
-    // 连接按钮信号
+    // 杩炴帴鎸夐挳淇″彿
     connect(digitaltwin_workfileButton, &QPushButton::clicked, [&]() {
         QString path = QFileDialog::getOpenFileName(
             &dialog, "选择工件模型", "", "STL Files (*.stl)");
@@ -659,7 +659,7 @@ void MdiChild::RunCutsim()
     std::vector<std::array<double, 3>> force_data;
     force_data.assign(350, { 100.0, 100.0, 0.0 });
     std::array<double, 14> Msh_Data{};
-    // 保存刀具参数输入控件的指针
+    // 淇濆瓨鍒€鍏峰弬鏁拌緭鍏ユ帶浠剁殑鎸囬拡
     this->cutterParamsEdit = cutterParamsEdit;
 
     connect(digitaltwin_runButton, &QPushButton::clicked, [&]() {
@@ -670,7 +670,7 @@ void MdiChild::RunCutsim()
         digitaltwin_millpar.constrain_limits[2][0] = digitaltwin_z1Edit->text().toDouble();
         digitaltwin_millpar.constrain_limits[2][1] = digitaltwin_z2Edit->text().toDouble();
 
-        // 解析刀具参数
+        // 瑙ｆ瀽鍒€鍏峰弬鏁?
         digitaltwin_millpar.cutter_segments.clear();
         QString params = cutterParamsEdit->text();
         QStringList segmentList = params.split(';');
@@ -693,7 +693,7 @@ void MdiChild::RunCutsim()
         });
 #pragma endregion
 
-    // 连接菜单栏切换信号
+    // 杩炴帴鑿滃崟鏍忓垏鎹俊鍙?
     connect(broachingAction, &QAction::toggled, [&](bool checked) {
         if (checked) {
             millingAction->setChecked(false);
@@ -711,10 +711,10 @@ void MdiChild::RunCutsim()
     connect(digitaltwinAction, &QAction::toggled, [&](bool checked) {
         if (checked) {
             try {
-                // 取消其他页面的选中状态
+                // 鍙栨秷鍏朵粬椤甸潰鐨勯€変腑鐘舵€?
                 if (broachingAction) broachingAction->setChecked(false);
                 if (millingAction) millingAction->setChecked(false);
-                // 切换到数字孪生页面
+                // 鍒囨崲鍒版暟瀛楀鐢熼〉闈?
                 if (stackedWidget) stackedWidget->setCurrentIndex(2);
             }
             catch (const std::exception& e) {
@@ -723,8 +723,141 @@ void MdiChild::RunCutsim()
         }
         });
 
-    // 显示对话框
+    // 鏄剧ず瀵硅瘽妗?
     dialog.exec();
+}
+
+#if 0
+void MdiChild::ExportCutsimResults()
+{
+    if (m_isMillingSimulationRunning) {
+        QMessageBox::warning(this, tr("结果导出"), tr("铣削仿真仍在运行，请等待仿真完成后再导出结果。"));
+        return;
+    }
+
+    if (!m_lastMillingCutsim) {
+        QMessageBox::warning(this, tr("结果导出"), tr("当前没有可导出的铣削仿真结果，请先运行一次铣削仿真。"));
+        return;
+    }
+
+    QString stlPath = QFileDialog::getSaveFileName(
+        this,
+        tr("导出切削后 STL"),
+        QDir::currentPath() + "/cutsim_result.stl",
+        tr("STL Files (*.stl)"));
+    if (stlPath.isEmpty()) {
+        return;
+    }
+    if (!stlPath.endsWith(".stl", Qt::CaseInsensitive)) {
+        stlPath += ".stl";
+    }
+
+    QString errorMessage;
+    if (!m_lastMillingCutsim->exportCurrentStl(stlPath, &errorMessage)) {
+        QMessageBox::critical(this, tr("结果导出"), errorMessage);
+        return;
+    }
+
+    QFileInfo stlInfo(stlPath);
+    const QString forcePath = stlInfo.absolutePath() + "/" + stlInfo.completeBaseName() + "_force.csv";
+    bool forceExported = false;
+    if (forcewidget && forcewidget->hasData()) {
+        forceExported = forcewidget->exportDataToCsv(forcePath, &errorMessage);
+    }
+    else {
+        errorMessage = tr("当前没有切削力曲线数据可导出。STL 已成功导出。");
+    }
+
+    QString message = tr("STL 已导出：\n%1").arg(stlPath);
+    if (forceExported) {
+        message += tr("\n\n切削力数据已导出：\n%1").arg(forcePath);
+        QMessageBox::information(this, tr("结果导出"), message);
+    }
+    else {
+        message += tr("\n\n") + errorMessage;
+        QMessageBox::warning(this, tr("结果导出"), message);
+    }
+}
+
+#endif
+
+void MdiChild::ExportCutsimResults()
+{
+    if (m_isMillingSimulationRunning || m_isDigitalTwinSimulationRunning) {
+        QMessageBox::warning(this, tr("Result Export"), tr("Simulation is still running. Please export after it finishes."));
+        return;
+    }
+
+    int exportSource = 0;
+    if (m_lastCutsimExportSource == 2 && m_lastDigitalTwinMilling) {
+        exportSource = 2;
+    }
+    else if (m_lastCutsimExportSource == 1 && m_lastMillingCutsim) {
+        exportSource = 1;
+    }
+    else if (m_lastDigitalTwinMilling) {
+        exportSource = 2;
+    }
+    else if (m_lastMillingCutsim) {
+        exportSource = 1;
+    }
+
+    if (exportSource == 0) {
+        QMessageBox::warning(this, tr("Result Export"), tr("No cut simulation result is available. Please run a milling or digital twin simulation first."));
+        return;
+    }
+
+    const QString defaultFileName = (exportSource == 2)
+        ? QStringLiteral("/digitaltwin_milling_result.stl")
+        : QStringLiteral("/cutsim_result.stl");
+    QString stlPath = QFileDialog::getSaveFileName(
+        this,
+        tr("Export Cut STL"),
+        QDir::currentPath() + defaultFileName,
+        tr("STL Files (*.stl)"));
+    if (stlPath.isEmpty()) {
+        return;
+    }
+    if (!stlPath.endsWith(".stl", Qt::CaseInsensitive)) {
+        stlPath += ".stl";
+    }
+
+    QString errorMessage;
+    bool stlExported = false;
+    QString sourceName;
+    if (exportSource == 2) {
+        sourceName = QStringLiteral("digital twin milling");
+        stlExported = m_lastDigitalTwinMilling->exportCurrentStl(stlPath, &errorMessage);
+    }
+    else {
+        sourceName = QStringLiteral("Cutsim milling");
+        stlExported = m_lastMillingCutsim->exportCurrentStl(stlPath, &errorMessage);
+    }
+
+    if (!stlExported) {
+        QMessageBox::critical(this, tr("Result Export"), errorMessage);
+        return;
+    }
+
+    QFileInfo stlInfo(stlPath);
+    const QString forcePath = stlInfo.absolutePath() + "/" + stlInfo.completeBaseName() + "_force.csv";
+    bool forceExported = false;
+    if (forcewidget && forcewidget->hasData()) {
+        forceExported = forcewidget->exportDataToCsv(forcePath, &errorMessage);
+    }
+    else {
+        errorMessage = tr("No cutting force curve data is available. STL was exported successfully.");
+    }
+
+    QString message = tr("%1 STL exported:\n%2").arg(sourceName, stlPath);
+    if (forceExported) {
+        message += tr("\n\nCutting force data exported:\n%1").arg(forcePath);
+        QMessageBox::information(this, tr("Result Export"), message);
+    }
+    else {
+        message += tr("\n\n") + errorMessage;
+        QMessageBox::warning(this, tr("Result Export"), message);
+    }
 }
 
 void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfile, QString BladeAnglesfile)
@@ -751,7 +884,7 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
         BRepBndLib::Add(aShape, bbox);
 
         if (bbox.IsVoid()) {
-            // 处理空包围盒
+            // 澶勭悊绌哄寘鍥寸洅
             return;
         }
         double xMin, yMin, zMin, xMax, yMax, zMax;
@@ -772,7 +905,7 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
             TopoDS_Shape aShape;
             aisShape = p_TreeWidget->modelMap.value(tt).shape;
             if (!aisShape.IsNull()) {
-                // 方法1：使用 Shape() 方法
+                // 鏂规硶1锛氫娇鐢?Shape() 鏂规硶
                 aShape = aisShape->Shape();
             }
             gp_Trsf currentTrsf = aisShape->LocalTransformation();
@@ -801,7 +934,7 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
         }
         else
         {
-            Msg::ShowError("读取内容为空，采用默认模型");
+            Msg::ShowError("Input content is empty; using default model.");
             octreecenter[0] = 0;
             octreecenter[1] = -20;
             octreecenter[2] = -22;
@@ -814,7 +947,7 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
     myBroach->setSimulationTimes(broachpar.simulation[0], broachpar.simulation[1], broachpar.simulation[2]); // total simulation time, increment time, very time for modal analysis
     myBroach->setResidualReleaseEnabled(broachpar.enable_machining_residual_stress);
     qDebug() << "Machining residual stress test enabled:"
-             << broachpar.enable_machining_residual_stress;
+        << broachpar.enable_machining_residual_stress;
     myBroach->newBroach(broachpar.force_coefs);
     myBroach->addBroachs(edgePointsfile);
     //myBroach->performFEMSimulation(h_MyViewer);
@@ -822,6 +955,7 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
     connect(myBroach, &CutsimBroaching::ApplyUpdateForces, this->forcewidget, &ForceMonitorWidget::updateData);
 
     // 使用现代连接语法
+#if 0
     connect(myBroach, &CutsimBroaching::straightnessDataUpdated,
         this, &MdiChild::onStraightnessDataUpdated);
 
@@ -837,6 +971,7 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
     }
 
     // 启用选择功能
+#endif
     myBroach->enableSelection(true);
 
 
@@ -851,7 +986,10 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
 void MdiChild::milling_executeSimulation(QString stlfile, QString edgePointsfile, QString BladeAnglesfile)
 {
     using milling::CutsimMilling;
-    CutsimMilling* myMill = new CutsimMilling(9);
+    CutsimMilling* myMill = new CutsimMilling(10);
+    m_lastMillingCutsim = myMill;
+    m_lastDigitalTwinMilling = nullptr;
+    m_lastCutsimExportSource = 1;
     double partoffset[3] = { 0,0,0 };
     double octreecenter[3] = { 0,0,0 };
 
@@ -922,7 +1060,7 @@ void MdiChild::milling_executeSimulation(QString stlfile, QString edgePointsfile
         }
         else
         {
-            Msg::ShowError("读取内容为空，采用默认模型");
+            Msg::ShowError("Input content is empty; using default model.");
             octreecenter[0] = 0;
             octreecenter[1] = 0;
             octreecenter[2] = 0;
@@ -941,15 +1079,29 @@ void MdiChild::milling_executeSimulation(QString stlfile, QString edgePointsfile
     connect(myMill, &CutsimMilling::ApplyUpdateForces, this->forcewidget, &ForceMonitorWidget::updateData);
 
 
+    m_isMillingSimulationRunning = true;
+    if (forcewidget) {
+        forcewidget->clearData();
+    }
+
     QFuture<void> future = QtConcurrent::run([this, myMill]() {
         myMill->performFEMSimulation(this, h_MyViewer, visulization_item, visulization_limits);
+        QMetaObject::invokeMethod(this, [this]() {
+            m_isMillingSimulationRunning = false;
+            }, Qt::QueuedConnection);
         });
 }
 
 void MdiChild::digitaltwin_milling_test_executeSimulation(QString stlfile, std::array<double, 14>Msh_Data, std::vector<std::array<double, 3>>force_data)
 {
     using digitaltwin_milling::DigitalTwinMilling;
-    DigitalTwinMilling* mydigitaltwin_Mill = new DigitalTwinMilling(9);
+    DigitalTwinMilling* mydigitaltwin_Mill = new DigitalTwinMilling(12);
+    m_lastDigitalTwinMilling = mydigitaltwin_Mill;
+    m_lastMillingCutsim = nullptr;
+    m_lastCutsimExportSource = 2;
+    if (forcewidget) {
+        forcewidget->clearData();
+    }
 
     double partoffset[3] = { 0,0,0 };
     double octreecenter[3] = { 0,0,0 };
@@ -960,18 +1112,18 @@ void MdiChild::digitaltwin_milling_test_executeSimulation(QString stlfile, std::
     Standard_Boolean Res = aReader.Read(aShape, stlfile.toUtf8().constData());
     if (Res)
     {
-        //p_UI->showSuccess("STL识别成功");
-        Msg::ShowInfo("STL识别成功");
+        //p_UI->showSuccess("STL璇嗗埆鎴愬姛");
+        Msg::ShowInfo("STL璇嗗埆鎴愬姛");
         //aShape = aTempShape;
     }
-    else Msg::ShowInfo("STL读取失败");
+    else Msg::ShowInfo("STL璇诲彇澶辫触");
     if (!aShape.IsNull()) {
         //h_MyViewer->Display(aShape);
         Bnd_Box bbox;
         BRepBndLib::Add(aShape, bbox);
 
         if (bbox.IsVoid()) {
-            // 处理空包围盒
+            // 澶勭悊绌哄寘鍥寸洅
             return;
         }
         double xMin, yMin, zMin, xMax, yMax, zMax;
@@ -992,7 +1144,7 @@ void MdiChild::digitaltwin_milling_test_executeSimulation(QString stlfile, std::
             TopoDS_Shape aShape;
             aisShape = p_TreeWidget->modelMap.value(tt).shape;
             if (!aisShape.IsNull()) {
-                // 方法1：使用 Shape() 方法
+                // 鏂规硶1锛氫娇鐢?Shape() 鏂规硶
                 aShape = aisShape->Shape();
             }
             gp_Trsf currentTrsf = aisShape->LocalTransformation();
@@ -1007,7 +1159,7 @@ void MdiChild::digitaltwin_milling_test_executeSimulation(QString stlfile, std::
             BRepBndLib::Add(aShape, bbox);
 
             if (bbox.IsVoid()) {
-                // 处理空包围盒
+                // 澶勭悊绌哄寘鍥寸洅
                 return;
             }
             double xMin, yMin, zMin, xMax, yMax, zMax;
@@ -1021,7 +1173,7 @@ void MdiChild::digitaltwin_milling_test_executeSimulation(QString stlfile, std::
         }
         else
         {
-            Msg::ShowError("读取内容为空，采用默认模型");
+            Msg::ShowError("Input content is empty; using default model.");
             octreecenter[0] = 0;
             octreecenter[1] = 0;
             octreecenter[2] = 0;
@@ -1035,13 +1187,21 @@ void MdiChild::digitaltwin_milling_test_executeSimulation(QString stlfile, std::
 
     connect(mydigitaltwin_Mill, &DigitalTwinMilling::ApplyUpdateViewer, this, &MdiChild::updateView);
     connect(mydigitaltwin_Mill, &DigitalTwinMilling::ApplyUpdateForces, this->forcewidget, &ForceMonitorWidget::updateData);
-    // 启用选择功能
+    // 鍚敤閫夋嫨鍔熻兘
     mydigitaltwin_Mill->enableSelection(true);
 
-    // 异步执行 FEM 模拟
+    // 寮傛鎵ц FEM 妯℃嫙
+
+    m_isDigitalTwinSimulationRunning = true;
+    if (forcewidget) {
+        forcewidget->clearData();
+    }
 
     QFuture<void> future = QtConcurrent::run([this, mydigitaltwin_Mill]() {
         mydigitaltwin_Mill->performFEMSimulation_test(this, h_MyViewer, visulization_item, visulization_limits);
+        QMetaObject::invokeMethod(this, [this]() {
+            m_isDigitalTwinSimulationRunning = false;
+            }, Qt::QueuedConnection);
         });
 
 }
@@ -1049,7 +1209,13 @@ void MdiChild::digitaltwin_milling_test_executeSimulation(QString stlfile, std::
 void MdiChild::digitaltwin_milling_executeSimulation(QString stlfile)
 {
     using digitaltwin_milling::DigitalTwinMilling;
-    DigitalTwinMilling* mydigitaltwin_Mill = new DigitalTwinMilling(9);
+    DigitalTwinMilling* mydigitaltwin_Mill = new DigitalTwinMilling(10);
+    m_lastDigitalTwinMilling = mydigitaltwin_Mill;
+    m_lastMillingCutsim = nullptr;
+    m_lastCutsimExportSource = 2;
+    if (forcewidget) {
+        forcewidget->clearData();
+    }
 
     double partoffset[3] = { 0,0,0 };
     double octreecenter[3] = { 0,0,0 };
@@ -1060,18 +1226,18 @@ void MdiChild::digitaltwin_milling_executeSimulation(QString stlfile)
     Standard_Boolean Res = aReader.Read(aShape, stlfile.toUtf8().constData());
     if (Res)
     {
-        //p_UI->showSuccess("STL识别成功");
-        Msg::ShowInfo("STL识别成功");
+        //p_UI->showSuccess("STL璇嗗埆鎴愬姛");
+        Msg::ShowInfo("STL璇嗗埆鎴愬姛");
         //aShape = aTempShape;
     }
-    else Msg::ShowInfo("STL读取失败");
+    else Msg::ShowInfo("STL璇诲彇澶辫触");
     if (!aShape.IsNull()) {
         //h_MyViewer->Display(aShape);
         Bnd_Box bbox;
         BRepBndLib::Add(aShape, bbox);
 
         if (bbox.IsVoid()) {
-            // 处理空包围盒
+            // 澶勭悊绌哄寘鍥寸洅
             return;
         }
         double xMin, yMin, zMin, xMax, yMax, zMax;
@@ -1092,7 +1258,7 @@ void MdiChild::digitaltwin_milling_executeSimulation(QString stlfile)
             TopoDS_Shape aShape;
             aisShape = p_TreeWidget->modelMap.value(tt).shape;
             if (!aisShape.IsNull()) {
-                // 方法1：使用 Shape() 方法
+                // 鏂规硶1锛氫娇鐢?Shape() 鏂规硶
                 aShape = aisShape->Shape();
             }
             gp_Trsf currentTrsf = aisShape->LocalTransformation();
@@ -1107,7 +1273,7 @@ void MdiChild::digitaltwin_milling_executeSimulation(QString stlfile)
             BRepBndLib::Add(aShape, bbox);
 
             if (bbox.IsVoid()) {
-                // 处理空包围盒
+                // 澶勭悊绌哄寘鍥寸洅
                 return;
             }
             double xMin, yMin, zMin, xMax, yMax, zMax;
@@ -1121,7 +1287,7 @@ void MdiChild::digitaltwin_milling_executeSimulation(QString stlfile)
         }
         else
         {
-            Msg::ShowError("读取内容为空，采用默认模型");
+            Msg::ShowError("Input content is empty; using default model.");
             octreecenter[0] = 0;
             octreecenter[1] = 0;
             octreecenter[2] = 0;
@@ -1134,10 +1300,10 @@ void MdiChild::digitaltwin_milling_executeSimulation(QString stlfile)
 
     connect(mydigitaltwin_Mill, &DigitalTwinMilling::ApplyUpdateViewer, this, &MdiChild::updateView);
     connect(mydigitaltwin_Mill, &DigitalTwinMilling::ApplyUpdateForces, this->forcewidget, &ForceMonitorWidget::updateData);
-    // 启用选择功能
+    // 鍚敤閫夋嫨鍔熻兘
     mydigitaltwin_Mill->enableSelection(true);
 
-    // 异步执行 FEM 模拟
+    // 寮傛鎵ц FEM 妯℃嫙
 
     mydigitaltwin_Mill->peformModalAnalysis();
     mydigitaltwin_Mill->setVibrParams();

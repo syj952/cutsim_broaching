@@ -15,7 +15,7 @@
 //#define BLADE_MULTI_GPU (3)
 #define UPDATE_fREQUENCY (1000) //渲染更新频率(次/切削仿真次数)
 #define DT_SUM		(10)
-#define MFEM_DEPTH		(7)
+#define MFEM_DEPTH		(8)
 //added hust
 
 #define X_AXIS		(1)
@@ -32,7 +32,7 @@
 #define SIGN_B	(-1.0)
 #define SIGN_C	(-1.0)
 
-#define TOLERANCE			(5e-1)
+#define TOLERANCE			(2e-2)
 #define COLLISION_TOLERANCE	(2e-2)
 
 // Node pooling

@@ -100,6 +100,7 @@ namespace broaching {
         void enableSelection(bool enabled);
 
         cutsim::GLData* gld;
+        Handle(AIS_InteractiveObject) workdeformed;
     private:
 
         cutsim::Cutsim* myBroachCutsim;

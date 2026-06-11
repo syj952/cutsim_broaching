@@ -45,7 +45,7 @@ public:
     //@brief 连接多个边并返回复合曲线
     static TopoDS_Wire ConnectEdges(const std::vector<TopoDS_Edge>& edges);
 
-    static TopoDS_Wire OCCT_GraphOperations::ConnectDisorderEdges(const std::vector<TopoDS_Edge>& edgeList);
+    static TopoDS_Wire ConnectDisorderEdges(const std::vector<TopoDS_Edge>& edgeList);
     static std::vector<TopoDS_Wire> ConnectDisorderEdgesToWires(const std::vector<TopoDS_Edge>& edgeList);
 
     // @brief 检查Wire是否具有一致的方向

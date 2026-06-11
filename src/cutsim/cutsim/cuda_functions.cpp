@@ -8,6 +8,8 @@
 #include <cuda_runtime.h>
 #include <vector>
 #include <stack>
+#include <algorithm>
+#include <unordered_set>
 #include <unordered_map>
 //#include "cuda_diff_volume.hpp"
 
@@ -140,18 +142,18 @@ struct StlParams {
 };
 
 
-extern "C" void broaching_cuda_diff_volume_blade(CudaNodeData* host_nodes, int numNodes, broaching_BladeParams host_blade,
+extern "C" void broaching_cuda_diff_volume_blade(CudaNodeData * host_nodes, int numNodes, broaching_BladeParams host_blade,
     float** host_z_array, float** host_distence2edge, int** host_node_ids, int* host_record_count);
-extern "C" void milling_cuda_diff_volume_blade(CudaNodeData* host_nodes, int numNodes, milling_BladeParams host_blade,
+extern "C" void milling_cuda_diff_volume_blade(CudaNodeData * host_nodes, int numNodes, milling_BladeParams host_blade,
     float** host_z_array, float** host_distence2edge, int** host_node_ids, int* host_record_count);
 extern "C" void digitaltwin_milling_cuda_diff_volume_blade(
-    CudaNodeData* host_nodes,
+    CudaNodeData * host_nodes,
     int numNodes,
-    CutterSegment* segments,           // 改为指针
+    CutterSegment * segments,           // 改为指针
     int numSegments                   // 添加数量参数
 );
-extern "C" void cuda_diff_volume(CudaNodeData* host_nodes, int numNodes, VolumeParams host_volume);
-extern "C" void cuda_sum_stl(CudaNodeData* host_nodes, int numNodes, StlParams host_stl);
+extern "C" void cuda_diff_volume(CudaNodeData * host_nodes, int numNodes, VolumeParams host_volume);
+extern "C" void cuda_sum_stl(CudaNodeData * host_nodes, int numNodes, StlParams host_stl);
 
 
 #pragma pack(pop)
@@ -159,8 +161,455 @@ extern "C" void cuda_sum_stl(CudaNodeData* host_nodes, int numNodes, StlParams h
 
 namespace cutsim {
 
+    static void update_parent_states_from_leaves(const std::vector<Octnode*>& leaf_nodes) {
+        std::vector<Octnode*> parents;
+        std::unordered_set<Octnode*> seen;
+
+        for (Octnode* leaf : leaf_nodes) {
+            for (Octnode* node = leaf ? leaf->parent : nullptr; node != nullptr; node = node->parent) {
+                if (seen.insert(node).second) {
+                    parents.push_back(node);
+                }
+            }
+        }
+
+        std::sort(parents.begin(), parents.end(), [](const Octnode* a, const Octnode* b) {
+            return a->depth > b->depth;
+            });
+
+        for (Octnode* node : parents) {
+            if (node->childcount != 8) {
+                continue;
+            }
+
+            Octnode::NodeState new_state = Octnode::UNDECIDED;
+            if (node->all_child_state(Octnode::INSIDE)) {
+                new_state = Octnode::INSIDE;
+            }
+            else if (node->all_child_state(Octnode::OUTSIDE)) {
+                new_state = Octnode::OUTSIDE;
+            }
+
+            if (node->state != new_state) {
+                if (new_state == Octnode::UNDECIDED && node->state != Octnode::UNDECIDED) {
+                    node->prev_state = node->state;
+                }
+                node->state = new_state;
+                node->setInvalid();
+            }
+
+            if (new_state != Octnode::UNDECIDED) {
+                node->delete_children();
+            }
+        }
+    }
+
 
     // 构造函数，初始化CUDA状态
+    static constexpr size_t STL_SUM_NODE_BATCH_SIZE = 65536;
+
+    static void fill_cuda_node_data(CudaNodeData& dst, const Octnode* node) {
+        for (int j = 0; j < 8; ++j) {
+            dst.x[j] = static_cast<float>(node->vertex[j]->x);
+            dst.y[j] = static_cast<float>(node->vertex[j]->y);
+            dst.z[j] = static_cast<float>(node->vertex[j]->z);
+            dst.f[j] = static_cast<float>(node->f[j]);
+            dst.node_id[j] = 0;
+        }
+    }
+
+    static void apply_cuda_stl_node_data(Octnode* node, const CudaNodeData& src, const StlVolume* vol) {
+        bool updated = false;
+        for (int j = 0; j < 8; ++j) {
+            const double new_f = static_cast<double>(src.f[j]);
+            if (new_f > node->f[j]) {
+                node->f[j] = new_f;
+                updated = true;
+            }
+        }
+
+        if (updated) {
+            node->color = vol->color;
+            node->setInvalid();
+        }
+    }
+
+    static Octnode::NodeState complete_stl_node_state(const Octnode* node) {
+        bool inside = true;
+        bool outside = true;
+        const double limit = node->scale * 4.0;
+
+        for (int j = 0; j < 8; ++j) {
+            if (node->f[j] <= limit) {
+                inside = false;
+            }
+            if (-limit <= node->f[j]) {
+                outside = false;
+            }
+        }
+
+        if (inside) {
+            return Octnode::INSIDE;
+        }
+        if (outside) {
+            return Octnode::OUTSIDE;
+        }
+        return Octnode::UNDECIDED;
+    }
+
+    static void force_node_state(Octnode* node, Octnode::NodeState state) {
+        if (state == Octnode::INSIDE) {
+            if (!node->is_inside()) {
+                node->force_setInside();
+                node->setInvalid();
+            }
+        }
+        else if (state == Octnode::OUTSIDE) {
+            if (!node->is_outside()) {
+                node->force_setOutside();
+                node->setInvalid();
+            }
+        }
+        else if (!node->is_undecided()) {
+            node->force_setUndecided();
+            node->setInvalid();
+        }
+    }
+
+    static void process_stl_node_batch(
+        const std::vector<Octnode*>& batch,
+        std::vector<CudaNodeData>& host_nodes,
+        const StlVolume* vol,
+        StlParams& stl_params) {
+        if (batch.empty()) {
+            return;
+        }
+
+        host_nodes.resize(batch.size());
+        for (size_t i = 0; i < batch.size(); ++i) {
+            fill_cuda_node_data(host_nodes[i], batch[i]);
+        }
+
+        cuda_sum_stl(host_nodes.data(), static_cast<int>(host_nodes.size()), stl_params);
+
+        for (size_t i = 0; i < batch.size(); ++i) {
+            apply_cuda_stl_node_data(batch[i], host_nodes[i], vol);
+        }
+    }
+
+    static Octnode::NodeState compress_stl_subtree_states(Octnode* node) {
+        if (node == nullptr || node->childcount != 8) {
+            return node ? node->state : Octnode::UNDECIDED;
+        }
+
+        for (int i = 0; i < 8; ++i) {
+            compress_stl_subtree_states(node->child[i]);
+        }
+
+        if (node->all_child_state(Octnode::INSIDE)) {
+            force_node_state(node, Octnode::INSIDE);
+            node->delete_children();
+        }
+        else if (node->all_child_state(Octnode::OUTSIDE)) {
+            force_node_state(node, Octnode::OUTSIDE);
+            node->delete_children();
+        }
+        else {
+            force_node_state(node, Octnode::UNDECIDED);
+        }
+
+        return node->state;
+    }
+
+    static Octnode::NodeState update_stl_parent_states_without_pruning(Octnode* node) {
+        if (node == nullptr || node->childcount != 8) {
+            return node ? node->state : Octnode::UNDECIDED;
+        }
+
+        for (int i = 0; i < 8; ++i) {
+            update_stl_parent_states_without_pruning(node->child[i]);
+        }
+
+        if (node->all_child_state(Octnode::INSIDE)) {
+            force_node_state(node, Octnode::INSIDE);
+        }
+        else if (node->all_child_state(Octnode::OUTSIDE)) {
+            force_node_state(node, Octnode::OUTSIDE);
+        }
+        else {
+            force_node_state(node, Octnode::UNDECIDED);
+        }
+
+        return node->state;
+    }
+
+    static size_t sum_stl_octree_batched(Octnode* root, const StlVolume* vol, unsigned int max_depth, StlParams& stl_params) {
+        if (root == nullptr || max_depth == 0) {
+            return 0;
+        }
+
+        const unsigned int target_depth = max_depth - 1;
+        size_t processed_count = 0;
+
+        std::vector<Octnode*> frontier;
+        std::vector<Octnode*> next_frontier;
+        std::vector<Octnode*> batch;
+        std::vector<CudaNodeData> host_nodes;
+
+        frontier.reserve(1024);
+        next_frontier.reserve(1024);
+        batch.reserve(STL_SUM_NODE_BATCH_SIZE);
+        host_nodes.reserve(STL_SUM_NODE_BATCH_SIZE);
+        frontier.push_back(root);
+
+        while (!frontier.empty()) {
+            next_frontier.clear();
+            batch.clear();
+
+            for (Octnode* node : frontier) {
+                if (node == nullptr || node->depth > target_depth || node->is_inside() || !vol->bb.overlaps(node->bb)) {
+                    continue;
+                }
+
+                if (node->depth == target_depth) {
+                    if (node->is_undecided() && !node->color.compareColor(vol->color)) {
+                        continue;
+                    }
+                    batch.push_back(node);
+                    if (batch.size() == STL_SUM_NODE_BATCH_SIZE) {
+                        process_stl_node_batch(batch, host_nodes, vol, stl_params);
+                        for (Octnode* processed_node : batch) {
+                            processed_node->set_state();
+                        }
+                        processed_count += batch.size();
+                        batch.clear();
+                    }
+                    continue;
+                }
+
+                if (node->childcount == 8) {
+                    for (int i = 0; i < 8; ++i) {
+                        if (!node->child[i]->is_inside()) {
+                            next_frontier.push_back(node->child[i]);
+                        }
+                    }
+                    continue;
+                }
+
+                if (!node->is_undecided()) {
+                    force_node_state(node, Octnode::UNDECIDED);
+                }
+                node->subdivide();
+                for (int i = 0; i < 8; ++i) {
+                    next_frontier.push_back(node->child[i]);
+                }
+            }
+
+            if (!batch.empty()) {
+                process_stl_node_batch(batch, host_nodes, vol, stl_params);
+                for (Octnode* processed_node : batch) {
+                    processed_node->set_state();
+                }
+                processed_count += batch.size();
+            }
+
+            frontier.swap(next_frontier);
+        }
+
+        update_stl_parent_states_without_pruning(root);
+        return processed_count;
+    }
+
+    struct BroachingAabb {
+        double min_x;
+        double min_y;
+        double min_z;
+        double max_x;
+        double max_y;
+        double max_z;
+    };
+
+    struct BroachingLeafSearchContext {
+        const broaching_AptCutterVolume* vol;
+        BroachingAabb aabb;
+    };
+
+    static thread_local const BroachingLeafSearchContext* active_broaching_leaf_search = nullptr;
+
+    static inline void expand_broaching_aabb(BroachingAabb& aabb, const GLVertex& p) {
+        const double x = static_cast<double>(p.x);
+        const double y = static_cast<double>(p.y);
+        const double z = static_cast<double>(p.z);
+        if (x < aabb.min_x) aabb.min_x = x;
+        if (y < aabb.min_y) aabb.min_y = y;
+        if (z < aabb.min_z) aabb.min_z = z;
+        if (x > aabb.max_x) aabb.max_x = x;
+        if (y > aabb.max_y) aabb.max_y = y;
+        if (z > aabb.max_z) aabb.max_z = z;
+    }
+
+    static BroachingAabb make_broaching_aabb(const broaching_AptCutterVolume* vol) {
+        const auto& bb = vol->bb_points;
+        const GLVertex& p0 = std::get<0>(bb);
+        BroachingAabb aabb{ p0.x, p0.y, p0.z, p0.x, p0.y, p0.z };
+        expand_broaching_aabb(aabb, std::get<1>(bb));
+        expand_broaching_aabb(aabb, std::get<2>(bb));
+        expand_broaching_aabb(aabb, std::get<3>(bb));
+        expand_broaching_aabb(aabb, std::get<4>(bb));
+        expand_broaching_aabb(aabb, std::get<5>(bb));
+        expand_broaching_aabb(aabb, std::get<6>(bb));
+        expand_broaching_aabb(aabb, std::get<7>(bb));
+        return aabb;
+    }
+
+    class BroachingLeafSearchScope {
+    public:
+        explicit BroachingLeafSearchScope(const broaching_AptCutterVolume* vol)
+            : previous_(active_broaching_leaf_search),
+            owns_context_(previous_ == nullptr || previous_->vol != vol) {
+            if (owns_context_) {
+                context_.vol = vol;
+                context_.aabb = make_broaching_aabb(vol);
+                active_broaching_leaf_search = &context_;
+            }
+        }
+
+        ~BroachingLeafSearchScope() {
+            if (owns_context_) {
+                active_broaching_leaf_search = previous_;
+            }
+        }
+
+    private:
+        BroachingLeafSearchContext context_{};
+        const BroachingLeafSearchContext* previous_;
+        bool owns_context_;
+    };
+
+    struct DigitalTwinLeafSearchContext {
+        const digitaltwin_AptCutterVolume* vol;
+        double min_x;
+        double min_y;
+        double min_z;
+        double max_x;
+        double max_y;
+        double max_z;
+    };
+
+    static thread_local const DigitalTwinLeafSearchContext* active_digitaltwin_leaf_search = nullptr;
+
+    class DigitalTwinLeafSearchScope {
+    public:
+        explicit DigitalTwinLeafSearchScope(const digitaltwin_AptCutterVolume* vol)
+            : previous_(active_digitaltwin_leaf_search),
+            owns_context_(previous_ == nullptr || previous_->vol != vol) {
+            if (owns_context_) {
+                context_.vol = vol;
+                context_.min_x = static_cast<double>(vol->bb.minpt.x);
+                context_.min_y = static_cast<double>(vol->bb.minpt.y);
+                context_.min_z = static_cast<double>(vol->bb.minpt.z);
+                context_.max_x = static_cast<double>(vol->bb.maxpt.x);
+                context_.max_y = static_cast<double>(vol->bb.maxpt.y);
+                context_.max_z = static_cast<double>(vol->bb.maxpt.z);
+                active_digitaltwin_leaf_search = &context_;
+            }
+        }
+
+        ~DigitalTwinLeafSearchScope() {
+            if (owns_context_) {
+                active_digitaltwin_leaf_search = previous_;
+            }
+        }
+
+    private:
+        DigitalTwinLeafSearchContext context_{};
+        const DigitalTwinLeafSearchContext* previous_;
+        bool owns_context_;
+    };
+
+    static inline bool digitaltwin_node_overlaps_volume(const Octnode* node, const DigitalTwinLeafSearchContext& context) {
+#ifdef MULTI_AXIS
+        return context.vol->bb.overlaps(node->bb);
+#else
+        return !(context.max_x < node->bb.minpt.x || context.min_x > node->bb.maxpt.x ||
+            context.max_y < node->bb.minpt.y || context.min_y > node->bb.maxpt.y ||
+            context.max_z < node->bb.minpt.z || context.min_z > node->bb.maxpt.z);
+#endif
+    }
+
+    static inline int vibration_node_id(const GLVertex* vertex, int normalvertices_size) {
+        return vertex->id <= 0 ? -vertex->id : vertex->id + normalvertices_size - 1;
+    }
+
+    static inline double vibration_value_or_zero(const std::vector<double>& values, int node_id) {
+        if (node_id < 0 || node_id >= static_cast<int>(values.size())) {
+            return 0.0;
+        }
+        return values[node_id];
+    }
+
+    static inline double interpolate_corner_values(const double c[8], double tx, double ty, double tz) {
+        const double omt_x = 1.0 - tx;
+        const double omt_y = 1.0 - ty;
+        const double omt_z = 1.0 - tz;
+        return c[0] * omt_x * omt_y * omt_z +
+            c[1] * tx * omt_y * omt_z +
+            c[2] * omt_x * ty * omt_z +
+            c[3] * tx * ty * omt_z +
+            c[4] * omt_x * omt_y * tz +
+            c[5] * tx * omt_y * tz +
+            c[6] * omt_x * ty * tz +
+            c[7] * tx * ty * tz;
+    }
+
+    static void append_digitaltwin_child_vibration(Octnode* current, digitaltwin_AptCutterVolume* vol, bool map_to_unit_interval) {
+        static const int parent_corner_order[8] = { 3, 2, 1, 0, 7, 6, 5, 4 };
+        int parent_node_ids[8];
+        for (int i = 0; i < 8; ++i) {
+            parent_node_ids[i] = vibration_node_id(current->vertex[parent_corner_order[i]], vol->normalvertices_size);
+        }
+
+        double interp_by_vertex[8];
+        const GLVertex* directions = Octnode::getDirection();
+        const size_t modal_count = vol->temp_vibration_vectors.size();
+
+        for (size_t modal = 0; modal < modal_count; ++modal) {
+            for (int axis = 0; axis < 3; ++axis) {
+                auto& values = vol->temp_vibration_vectors[modal][axis];
+                double c[8];
+                for (int i = 0; i < 8; ++i) {
+                    c[i] = vibration_value_or_zero(values, parent_node_ids[i]);
+                }
+
+                for (int k = 0; k < 8; ++k) {
+                    double tx = directions[k].x;
+                    double ty = directions[k].y;
+                    double tz = directions[k].z;
+                    if (map_to_unit_interval) {
+                        tx = (tx + 1.0) * 0.5;
+                        ty = (ty + 1.0) * 0.5;
+                        tz = (tz + 1.0) * 0.5;
+                    }
+                    else {
+                        tx *= 0.5;
+                        ty *= 0.5;
+                        tz *= 0.5;
+                    }
+                    interp_by_vertex[k] = interpolate_corner_values(c, tx, ty, tz);
+                }
+
+                values.reserve(values.size() + 64);
+                for (int child_index = 0; child_index < 8; ++child_index) {
+                    Octnode* child = current->child[child_index];
+                    for (int k = 0; k < 8; ++k) {
+                        values.push_back(interp_by_vertex[k]);
+                        child->vertex[k]->id = -static_cast<int>(values.size() - 1);
+                    }
+                }
+            }
+        }
+    }
+
     cuda_functions::cuda_functions() : deviceCount(0) {
         cudaError_t cudaStatus = cudaGetDeviceCount(&deviceCount);
         if (cudaStatus != cudaSuccess || deviceCount == 0) {
@@ -183,22 +632,17 @@ namespace cutsim {
         }
 
         // 获取包围盒的8个顶点
-        const auto& bb = vol->bb_points;
+        BroachingLeafSearchScope leaf_search_scope(vol);
+        const BroachingAabb& broaching_aabb = active_broaching_leaf_search->aabb;
         float3 min_coord = {
-            std::min({std::get<0>(bb).x, std::get<1>(bb).x, std::get<2>(bb).x, std::get<3>(bb).x,
-                      std::get<4>(bb).x, std::get<5>(bb).x, std::get<6>(bb).x, std::get<7>(bb).x}),
-            std::min({std::get<0>(bb).y, std::get<1>(bb).y, std::get<2>(bb).y, std::get<3>(bb).y,
-                      std::get<4>(bb).y, std::get<5>(bb).y, std::get<6>(bb).y, std::get<7>(bb).y}),
-            std::min({std::get<0>(bb).z, std::get<1>(bb).z, std::get<2>(bb).z, std::get<3>(bb).z,
-                      std::get<4>(bb).z, std::get<5>(bb).z, std::get<6>(bb).z, std::get<7>(bb).z})
+            static_cast<float>(broaching_aabb.min_x),
+            static_cast<float>(broaching_aabb.min_y),
+            static_cast<float>(broaching_aabb.min_z)
         };
         float3 max_coord = {
-            std::max({std::get<0>(bb).x, std::get<1>(bb).x, std::get<2>(bb).x, std::get<3>(bb).x,
-                      std::get<4>(bb).x, std::get<5>(bb).x, std::get<6>(bb).x, std::get<7>(bb).x}),
-            std::max({std::get<0>(bb).y, std::get<1>(bb).y, std::get<2>(bb).y, std::get<3>(bb).y,
-                      std::get<4>(bb).y, std::get<5>(bb).y, std::get<6>(bb).y, std::get<7>(bb).y}),
-            std::max({std::get<0>(bb).z, std::get<1>(bb).z, std::get<2>(bb).z, std::get<3>(bb).z,
-                      std::get<4>(bb).z, std::get<5>(bb).z, std::get<6>(bb).z, std::get<7>(bb).z})
+            static_cast<float>(broaching_aabb.max_x),
+            static_cast<float>(broaching_aabb.max_y),
+            static_cast<float>(broaching_aabb.max_z)
         };
 
         GLVertex* v = current->center;
@@ -342,7 +786,7 @@ namespace cutsim {
     bool cuda_functions::pointInTriangle(float2 a, float2 b, float2 c, float2 p) {
         auto cross = [](float2 a, float2 b, float2 c) {
             return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-            };
+        };
         float c1 = cross(a, b, p);
         float c2 = cross(b, c, p);
         float c3 = cross(c, a, p);
@@ -368,22 +812,17 @@ namespace cutsim {
         }
 
         // 获取包围盒的8个顶点
-        const auto& bb = vol->bb_points;
+        BroachingLeafSearchScope leaf_search_scope(vol);
+        const BroachingAabb& broaching_aabb = active_broaching_leaf_search->aabb;
         float3 min_coord = {
-            std::min({std::get<0>(bb).x, std::get<1>(bb).x, std::get<2>(bb).x, std::get<3>(bb).x,
-                      std::get<4>(bb).x, std::get<5>(bb).x, std::get<6>(bb).x, std::get<7>(bb).x}),
-            std::min({std::get<0>(bb).y, std::get<1>(bb).y, std::get<2>(bb).y, std::get<3>(bb).y,
-                      std::get<4>(bb).y, std::get<5>(bb).y, std::get<6>(bb).y, std::get<7>(bb).y}),
-            std::min({std::get<0>(bb).z, std::get<1>(bb).z, std::get<2>(bb).z, std::get<3>(bb).z,
-                      std::get<4>(bb).z, std::get<5>(bb).z, std::get<6>(bb).z, std::get<7>(bb).z})
+            static_cast<float>(broaching_aabb.min_x),
+            static_cast<float>(broaching_aabb.min_y),
+            static_cast<float>(broaching_aabb.min_z)
         };
         float3 max_coord = {
-            std::max({std::get<0>(bb).x, std::get<1>(bb).x, std::get<2>(bb).x, std::get<3>(bb).x,
-                      std::get<4>(bb).x, std::get<5>(bb).x, std::get<6>(bb).x, std::get<7>(bb).x}),
-            std::max({std::get<0>(bb).y, std::get<1>(bb).y, std::get<2>(bb).y, std::get<3>(bb).y,
-                      std::get<4>(bb).y, std::get<5>(bb).y, std::get<6>(bb).y, std::get<7>(bb).y}),
-            std::max({std::get<0>(bb).z, std::get<1>(bb).z, std::get<2>(bb).z, std::get<3>(bb).z,
-                      std::get<4>(bb).z, std::get<5>(bb).z, std::get<6>(bb).z, std::get<7>(bb).z})
+            static_cast<float>(broaching_aabb.max_x),
+            static_cast<float>(broaching_aabb.max_y),
+            static_cast<float>(broaching_aabb.max_z)
         };
 
         GLVertex* v = current->center;
@@ -938,13 +1377,53 @@ namespace cutsim {
     void cuda_functions::digitaltwin_get_leaf_nodes_diff(Octnode* current, std::vector<Octnode*>& nodes_to_process, digitaltwin_AptCutterVolume* vol, unsigned int max_depth) {
         //qDebug() << "vol->type():"<<vol->type;
         // 如果节点已经在外部或没有与体积重叠，则直接返回
-        if (current->depth > (vol->max_depth_1 - 1) || current->is_outside() || !vol->bb.overlaps(current->bb)) {
+        DigitalTwinLeafSearchScope leaf_search_scope(vol);
+        const DigitalTwinLeafSearchContext& leaf_search_context = *active_digitaltwin_leaf_search;
+        const unsigned int target_depth = static_cast<unsigned int>(vol->max_depth_1 - 1);
+        if (current->depth > target_depth || current->is_outside() || !digitaltwin_node_overlaps_volume(current, leaf_search_context)) {
             return;
         }
 
+        if (current->childcount == 8 && current->depth < target_depth) {
+            if (current->depth > MFEM_DEPTH - 1) {
+                append_digitaltwin_child_vibration(current, vol, true);
+            }
+            for (int n = 0; n < 8; ++n) {
+                if (!current->child[n]->is_outside()) {
+                    digitaltwin_get_leaf_nodes_diff(current->child[n], nodes_to_process, vol, max_depth);
+                }
+            }
+            return;
+        }
+
+        if (current->depth < target_depth) {
+            if (!current->is_undecided()) {
+                current->force_setUndecided();
+            }
+            current->subdivide();
+            append_digitaltwin_child_vibration(current, vol, false);
+            for (int m = 0; m < 8; ++m) {
+                digitaltwin_get_leaf_nodes_diff(current->child[m], nodes_to_process, vol, max_depth);
+            }
+            return;
+        }
+
+        nodes_to_process.push_back(current);
+        return;
+
         //qDebug() << "get_leaf_nodes_diff():";
         // 首先判断是否有子节点
-        if (current->childcount == 8 && current->depth < (vol->max_depth_1 - 1)) {
+        if (current->childcount == 8 && current->depth < target_depth) {
+            const bool interpolate_existing_children = current->depth > MFEM_DEPTH - 1;
+            if (interpolate_existing_children) {
+                append_digitaltwin_child_vibration(current, vol, true);
+                for (int n = 0; n < 8; ++n) {
+                    if (!current->child[n]->is_outside()) {
+                        digitaltwin_get_leaf_nodes_diff(current->child[n], nodes_to_process, vol, max_depth);
+                    }
+                }
+                return;
+            }
             // 检查子节点是否是inside
             for (int n = 0; n < 8; ++n) {
 
@@ -1448,11 +1927,31 @@ namespace cutsim {
         }
 
         // 释放内存A
+
         delete[] host_nodes;
 
     }
 
     void cuda_functions::sum_volume_stl(Octnode* current, const StlVolume* vol, unsigned int max_depth) {
+        qDebug() << "sum_volume_stl():";
+
+        if (current == nullptr || vol == nullptr || max_depth == 0) {
+            qDebug() << "sum_volume_stl(): invalid input";
+            return;
+        }
+
+        if (current->is_inside() || !vol->bb.overlaps(current->bb)) {
+            qDebug() << "sum_volume_stl(): nothing to process";
+            return;
+        }
+
+        int facet_count = static_cast<int>(vol->facets.size());
+        if (facet_count <= 0) {
+            qDebug() << "sum_volume_stl(): empty STL facets";
+            return;
+        }
+
+#if 0
         // 准备要处理的节点列表
         std::vector<Octnode*> nodes_to_process;
 
@@ -1483,6 +1982,7 @@ namespace cutsim {
 
         // 准备 STL 数据
         int facet_count = vol->facets.size();
+#endif
         StlParams stl_params;
 
         // 分配设备内存并复制数据
@@ -1624,6 +2124,9 @@ namespace cutsim {
         delete[] h_V13invV13dotV13;
 
         // 调用 CUDA 函数
+        const size_t processed_count = sum_stl_octree_batched(current, vol, max_depth, stl_params);
+        qDebug() << "sum_volume_stl processed nodes:" << static_cast<unsigned long long>(processed_count);
+#if 0
         cuda_sum_stl(host_nodes, node_count, stl_params);
 
         // 更新节点数据
@@ -1643,6 +2146,9 @@ namespace cutsim {
         }
 
         // 释放设备内存
+        update_parent_states_from_leaves(nodes_to_process);
+
+#endif
         cudaFree(d_facets_v1);
         cudaFree(d_facets_v2);
         cudaFree(d_facets_v3);
@@ -1655,7 +2161,6 @@ namespace cutsim {
         cudaFree(d_V13invV13dotV13);
 
         // 释放主机内存
-        delete[] host_nodes;
     }
 
     void cuda_functions::diff_volume(Octnode* current, const Volume* vol, unsigned int max_depth) { // 添加max_depth参数
@@ -1855,6 +2360,9 @@ namespace cutsim {
         std::chrono::duration<double> elapsed(0);
 
         nodes_to_process.clear();
+        if (nodes_to_process.capacity() < 512) {
+            nodes_to_process.reserve(512);
+        }
 
         // 默认处理第0个切削刃，实际使用时应该根据需要指定blade_id
         int blade_id = vol->blade_num;
@@ -1903,9 +2411,6 @@ namespace cutsim {
         blade.device_id = 0;  // 设置设备ID
 
         // 处理blade_points数据
-        blade.dy = static_cast<float>(vol->dy);
-        blade.dz = static_cast<float>(vol->dz);
-        blade.cube_resolution_1 = static_cast<float>(vol->cube_resolution_1);
         blade.blade_id = blade_id;
 
         if (!vol->blade_points.empty() && blade_id < vol->blade_points.size()) {
@@ -1981,122 +2486,10 @@ namespace cutsim {
             }
 
             start = std::chrono::system_clock::now();
-            int plane_pass = 0;
-            int xz_pass = 0;
-            int inside_cpu = 0;
 
-            for (size_t ni = 0; ni < node_count; ++ni) {
-                for (int vi = 0; vi < 8; ++vi) {
-                    GLVertex_xyz p{
-                        host_nodes[ni].x[vi],
-                        host_nodes[ni].y[vi],
-                        host_nodes[ni].z[vi]
-                    };
-
-                    bool plane_ok = false;
-                    const float plane_eps = 1e-6f;
-
-                    for (int pi = 0; pi < blade.plane_count; ++pi) {
-                        auto n = blade.plane_normals[pi];
-                        auto pp = blade.plane_points[pi];
-
-                        float dist =
-                            n.x * (p.x - pp.x) +
-                            n.y * (p.y - pp.y) +
-                            n.z * (p.z - pp.z);
-
-                        float dist_next =
-                            n.x * (p.x - (pp.x - blade.dx)) +
-                            n.y * (p.y - (pp.y - blade.dy)) +
-                            n.z * (p.z - (pp.z - blade.dz));
-
-                        if ((dist >= -plane_eps && dist_next <= plane_eps) ||
-                            (dist <= plane_eps && dist_next >= -plane_eps)) {
-                            plane_ok = true;
-                            break;
-                        }
-                    }
-
-                    if (plane_ok) ++plane_pass;
-
-                    bool xz_ok = false;
-                    bool section_inside = false;
-                    const float section_eps = 1e-6f;
-
-                    for (int bi = 0; bi < blade.blade_points_count; ++bi) {
-                        int bj = (bi + 1) % blade.blade_points_count;
-                        float z1 = blade.blade_points[bi].z;
-                        float z2 = blade.blade_points[bj].z;
-                        float x1 = blade.blade_points[bi].x;
-                        float x2 = blade.blade_points[bj].x;
-
-                        float edge_dx = x2 - x1;
-                        float edge_dz = z2 - z1;
-                        float point_dx = p.x - x1;
-                        float point_dz = p.z - z1;
-                        float cross = edge_dx * point_dz - edge_dz * point_dx;
-                        if (std::fabs(cross) <= section_eps &&
-                            p.x >= std::min(x1, x2) - section_eps && p.x <= std::max(x1, x2) + section_eps &&
-                            p.z >= std::min(z1, z2) - section_eps && p.z <= std::max(z1, z2) + section_eps) {
-                            section_inside = true;
-                            break;
-                        }
-
-                        if (std::fabs(edge_dz) < section_eps) continue;
-
-                        if ((z1 > p.z) != (z2 > p.z)) {
-                            float t = (p.z - z1) / edge_dz;
-                            float x_cross = x1 + t * edge_dx;
-                            if (p.x <= x_cross + section_eps) {
-                                section_inside = !section_inside;
-                            }
-                        }
-                    }
-
-                    xz_ok = blade.blade_points_count >= 3 && section_inside;
-                    if (xz_ok) ++xz_pass;
-
-                    if (plane_ok && xz_ok) ++inside_cpu;
-                }
-            }
-
-            qDebug() << "inside debug:"
-                << "blade_id" << blade_id
-                << "vertices" << node_count * 8
-                << "plane_pass" << plane_pass
-                << "xz_pass" << xz_pass
-                << "inside_cpu" << inside_cpu;
             broaching_cuda_diff_volume_blade(host_nodes, node_count, blade,
                 &host_z_array, &host_distence2edge, &host_node_ids, &host_record_count);
-            int positive_f_count = 0;
-            int negative_f_count = 0;
-            int changed_to_cut_node_count = 0;
 
-            for (size_t ni = 0; ni < node_count; ++ni) {
-                bool node_has_positive = false;
-
-                for (int vi = 0; vi < 8; ++vi) {
-                    if (host_nodes[ni].f[vi] > 0.0f) {
-                        ++positive_f_count;
-                        node_has_positive = true;
-                    }
-                    else {
-                        ++negative_f_count;
-                    }
-                }
-
-                if (node_has_positive) {
-                    ++changed_to_cut_node_count;
-                }
-            }
-
-            qDebug() << "broaching cuda result:"
-                << "blade_id" << blade_id
-                << "node_count" << node_count
-                << "record_count" << host_record_count
-                << "positive_f_count" << positive_f_count
-                << "negative_f_count" << negative_f_count
-                << "changed_to_cut_node_count" << changed_to_cut_node_count;
             stop = std::chrono::system_clock::now();
             qDebug() << "cuda计算时间():" << std::chrono::duration<double>(stop - start).count() << "sec.";
 
@@ -2252,7 +2645,6 @@ namespace cutsim {
                 z_data.min_node_point,
                 vol->cube_resolution_1
             );
-
             double cuth_distence = 0.0;
             if (blade_id < 1) continue;
             // 计算向量(blade_num_dist_dx, blade_num_dist_dy, blade_num_dist_dz)在向量(vol->dx,vol->dy,vol->dz)上的投影长度
@@ -2418,7 +2810,7 @@ namespace cutsim {
             node->color = { r, g, b };
             // 更新节点状态
             node->set_state();
-            };
+        };
 
         // 创建正确的索引向量：包含0到node_count-1的索引
         QVector<size_t> indices(node_count);
@@ -2495,16 +2887,13 @@ namespace cutsim {
         }
 
         milling_BladeParams blade;
-        blade.dy = static_cast<float>(vol->dy);
-        blade.dz = static_cast<float>(vol->dz);
-        blade.cube_resolution = static_cast<float>(vol->cube_resolution_2);
         blade.center_x = static_cast<float>(vol->center.x);
         blade.center_y = static_cast<float>(vol->center.y);
         blade.center_z = static_cast<float>(vol->center.z);
         blade.dx = static_cast<float>(vol->dx);  // 新增dx赋值
         blade.dy = static_cast<float>(vol->dy);  // 新增dy赋值
         blade.dz = static_cast<float>(vol->dz);  // 新增dz赋值
-        blade.cube_resolution = static_cast<float>(vol->cube_resolution_2);
+        blade.cube_resolution = static_cast<float>(vol->cube_resolution_1);
         blade.device_id = 0;  // 设置设备ID
 
         // 处理blade_points数据
@@ -2527,6 +2916,7 @@ namespace cutsim {
         // 新增：显式检查blade_points_count合法性
         if (blade.blade_points_count < 0) {
             qDebug() << "Invalid blade_points_count: " << blade.blade_points_count;
+            delete[] blade.blade_points;
             delete[] host_nodes;
             return;
         }
@@ -2540,6 +2930,7 @@ namespace cutsim {
         cudaError_t cudaStatus = cudaGetLastError();
         if (cudaStatus != cudaSuccess) {
             qDebug() << "CUDA初始化错误:" << cudaGetErrorString(cudaStatus);
+            delete[] blade.blade_points;
             delete[] host_nodes;
             return;
         }
@@ -2547,15 +2938,7 @@ namespace cutsim {
         // 配置BladeParams
         blade.device_id = 0;  // 设置设备ID
 
-        // 处理设备内存指针（关键修改）
-        if (!vol->blade_points.empty()) {
-            GLVertex_xyz* dev_points = nullptr;
-            cudaMalloc(&dev_points, blade.blade_points_count * sizeof(GLVertex_xyz));
-            cudaMemcpy(dev_points, blade.blade_points,
-                blade.blade_points_count * sizeof(GLVertex_xyz),
-                cudaMemcpyHostToDevice);
-            blade.blade_points = dev_points;
-        }
+        // milling_cuda_diff_volume_blade copies blade_points to device internally.
 
 
 
@@ -2570,6 +2953,7 @@ namespace cutsim {
             if (preLaunchErr != cudaSuccess) {
                 qDebug() << "Pre-launch error:" << cudaGetErrorString(preLaunchErr);
                 // 释放主机内存
+                delete[] blade.blade_points;
                 delete[] host_nodes;
                 return;
             }
@@ -2599,6 +2983,10 @@ namespace cutsim {
         catch (const std::exception& e) {
             qDebug() << "CUDA函数调用异常:" << e.what();
             // 释放内存并回退到CPU实现
+            free(host_z_array);
+            free(host_distence2edge);
+            free(host_node_ids);
+            delete[] blade.blade_points;
             delete[] host_nodes;
             for (size_t i = 0; i < node_count; i++) {
                 nodes_to_process[i]->diff(vol);
@@ -2769,16 +3157,22 @@ namespace cutsim {
             //        }
             z_vector.push_back(real_blade_points_up);
 
-            const_cast<milling_AptCutterVolume*>(vol)->add_surface_map(
+            // Disabled to avoid retaining surface trace points for every simulation step.
+            /*
+            // const_cast<milling_AptCutterVolume*>(vol)->add_surface_map(
                 z_key,          // 内层键：z坐标值
-                real_blade_points
-            );
+            //     real_blade_points
+            // );
+            */
             const_cast<milling_AptCutterVolume*>(vol)->addcut_h(
                 z_key,
                 cuth_distence,
                 z_data.min_d2edge,  // 新增最小距离
                 z_data.min_node_id,  // 新增对应节点ID
-                P_min
+                P_min,
+                up_z_data.min_node_id,
+                real_blade_points,
+                real_blade_points_up
             );
         }
 
@@ -2788,86 +3182,98 @@ namespace cutsim {
 
         start = std::chrono::system_clock::now();
 
-        // 更新Octnode - 使用QtConcurrent并行化处理
+        // 缓存振动向量和模态参数，减少内存访问
+        const auto& temp_vibration_vectors = vol->temp_vibration_vectors;
+        const auto& next_vibration_q = vol->next_vibration_q;
+        size_t num_modes = temp_vibration_vectors.size();
+        double q_total = 0.0;
+        double u_x = 0.0;
+        double u_y = 0.0;
+        double u_z = 0.0;
+        bool color_updated = false;
+        double q_x = 0.0, q_y = 0.0, q_z = 0.0;
+        int node_id;
+
         // 创建索引范围，避免在并行处理中查找索引
-        QVector<int> indices(node_count);
-        for (int i = 0; i < node_count; i++) {
-            indices[i] = i;
-        }
-
-        QtConcurrent::blockingMap(indices, [&](int i) {
+        // Update Octnode sequentially.
+        for (size_t i = 0; i < node_count; ++i) {
             Octnode* node = nodes_to_process[i];
-            bool updated = false;
-            double q_total = 0.0;
-            double u_x = 0.0;
-            double u_y = 0.0;
-            double u_z = 0.0;
 
-            // 缓存振动向量和模态参数，减少内存访问
-            const auto& temp_vibration_vectors = vol->temp_vibration_vectors;
-            const auto& next_vibration_q = vol->next_vibration_q;
-            size_t num_modes = temp_vibration_vectors.size();
+            q_total = 0.0;
+            u_x = 0.0;
+            u_y = 0.0;
+            u_z = 0.0;
+            color_updated = false;
 
             for (int j = 0; j < 8; j++) {
+                node->updated[j] = false;
                 if (static_cast<double>(-host_nodes[i].f[j]) < node->f[j]) {
                     node->f[j] = static_cast<double>(-host_nodes[i].f[j]);
-                    updated = true;
+                    node->updated[j] = true;
+                    color_updated = true;
                 }
+            }
 
-                double q_x = 0.0, q_y = 0.0, q_z = 0.0;
-                int node_id = host_nodes[i].node_id[j];
+            if (color_updated) {
 
-                for (size_t modal = 0; modal < num_modes; modal++) {
-                    double q_mode = next_vibration_q[modal];
-                    q_x += static_cast<float>(temp_vibration_vectors[modal][0][node_id] * q_mode);
-                    q_y += static_cast<float>(temp_vibration_vectors[modal][1][node_id] * q_mode);
-                    q_z += static_cast<float>(temp_vibration_vectors[modal][2][node_id] * q_mode);
+                for (int j = 0; j < 8; j++) {
+
+                    node_id = host_nodes[i].node_id[j];
+                    q_x = 0.0, q_y = 0.0, q_z = 0.0;
+
+                    for (size_t modal = 0; modal < num_modes; modal++) {
+                        double q_mode = next_vibration_q[modal];
+                        q_x += static_cast<float>(temp_vibration_vectors[modal][0][node_id] * q_mode);
+                        q_y += static_cast<float>(temp_vibration_vectors[modal][1][node_id] * q_mode);
+                        q_z += static_cast<float>(temp_vibration_vectors[modal][2][node_id] * q_mode);
+                    }
+
+                    //q_total += std::sqrt(q_x * q_x + q_y * q_y + q_z * q_z);
+                    q_total += q_x;
+                    u_x += q_x;
+                    u_y += q_y;
+                    u_z += q_z;
+
                 }
-
-                q_total += std::sqrt(q_x * q_x + q_y * q_y + q_z * q_z);
-                //q_total += q_x;
-                u_x += q_x;
-                u_y += q_y;
-                u_z += q_z;
-
             }
-            q_total = std::abs(q_total) / 8.0;
-            u_x = u_x / 8.0;
-            u_y = u_y / 8.0;
-            u_z = u_z / 8.0;
-            float r, g, b;
-            switch (vol->deform_color_var) {
-            case 0:
-                getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 1:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 2:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 3:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            default:
-                getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
+
+            if (color_updated) {
+                q_total = std::abs(q_total) / 8.0;
+                u_x = u_x / 8.0;
+                u_y = u_y / 8.0;
+                u_z = u_z / 8.0;
+                float r, g, b;
+                switch (vol->deform_color_var) {
+                case 0:
+                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                case 1:
+                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                case 2:
+                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                case 3:
+                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                default:
+                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                }
+                node->color = { r, g, b };
             }
+
             node->set_state();
-            //if (updated) node->color = vol->color;
-            node->color = { r, g, b };
-            });
+
+        }
 
         milling_clean_outside_nodes(current, vol);  // 清理当前节点及其子节点中的无效OUTSIDE节点
 
-        // 释放设备内存
-        if (!vol->blade_points.empty()) {
-            cudaFree(blade.blade_points);
-        }
         // 释放主机内存
+        delete[] blade.blade_points;
         delete[] host_nodes;
 
-        //stop = std::chrono::system_clock::now();
-        //qDebug() << " 结果处理():" << std::chrono::duration<double>(stop - start).count() << "sec.";
+        stop = std::chrono::system_clock::now();
+        qDebug() << " 结果处理():" << std::chrono::duration<double>(stop - start).count() << "sec.";
     }
 
     void cuda_functions::digitaltwin_milling_diff_volume_blade(Octnode* current, digitaltwin_AptCutterVolume* vol, unsigned int max_depth, Octree* octree) { // 添加max_depth参数
@@ -2875,6 +3281,9 @@ namespace cutsim {
 
         // 使用类的nodes_to_process成员变量
         nodes_to_process.clear();
+        if (nodes_to_process.capacity() < 512) {
+            nodes_to_process.reserve(512);
+        }
 
         std::chrono::system_clock::time_point start, stop;
         start = std::chrono::system_clock::now();
@@ -2938,6 +3347,7 @@ namespace cutsim {
         // 修改类型转换部分（约113行和126行）
         // 在参数填充循环之后添加变量声明（约109行）
         std::vector<CutterSegment> segments;
+        segments.reserve(vol->segments.size());
         for (const auto& seg : vol->segments) {
             CutterSegment cseg;
             cseg.type = seg.type;
@@ -3009,25 +3419,30 @@ namespace cutsim {
             return;
         }
 
-        // 更新Octnode - 使用QtConcurrent并行化处理
+        start = std::chrono::system_clock::now();
+
+        // 缓存振动向量和模态参数，减少内存访问
+        const auto& temp_vibration_vectors = vol->temp_vibration_vectors;
+        const auto& next_vibration_q = vol->next_vibration_q;
+        size_t num_modes = temp_vibration_vectors.size();
+        double q_total = 0.0;
+        double u_x = 0.0;
+        double u_y = 0.0;
+        double u_z = 0.0;
+        bool color_updated = false;
+        double q_x = 0.0, q_y = 0.0, q_z = 0.0;
+        int node_id;
+
         // 创建索引范围，避免在并行处理中查找索引
-        QVector<int> indices(node_count);
-        for (int i = 0; i < node_count; i++) {
-            indices[i] = i;
-        }
-
-        QtConcurrent::blockingMap(indices, [&](int i) {
+        // Update Octnode sequentially.
+        for (size_t i = 0; i < node_count; ++i) {
             Octnode* node = nodes_to_process[i];
-            double q_total = 0.0;
-            double u_x = 0.0;
-            double u_y = 0.0;
-            double u_z = 0.0;
-            bool color_updated = false;
 
-            // 缓存振动向量和模态参数，减少内存访问
-            const auto& temp_vibration_vectors = vol->temp_vibration_vectors;
-            const auto& next_vibration_q = vol->next_vibration_q;
-            size_t num_modes = temp_vibration_vectors.size();
+            q_total = 0.0;
+            u_x = 0.0;
+            u_y = 0.0;
+            u_z = 0.0;
+            color_updated = false;
 
             for (int j = 0; j < 8; j++) {
                 node->updated[j] = false;
@@ -3037,49 +3452,67 @@ namespace cutsim {
                     color_updated = true;
                 }
 
-                double q_x = 0.0, q_y = 0.0, q_z = 0.0;
-                int node_id = host_nodes[i].node_id[j];
+                if (color_updated) {
 
-                for (size_t modal = 0; modal < num_modes; modal++) {
-                    double q_mode = next_vibration_q[modal];
-                    q_x += static_cast<float>(temp_vibration_vectors[modal][0][node_id] * q_mode);
-                    q_y += static_cast<float>(temp_vibration_vectors[modal][1][node_id] * q_mode);
-                    q_z += static_cast<float>(temp_vibration_vectors[modal][2][node_id] * q_mode);
+                    node_id = host_nodes[i].node_id[j];
+                    q_x = 0.0, q_y = 0.0, q_z = 0.0;
+
+                    for (size_t modal = 0; modal < num_modes; modal++) {
+                        double q_mode = next_vibration_q[modal];
+                        q_x += static_cast<float>(temp_vibration_vectors[modal][0][node_id] * q_mode);
+                        q_y += static_cast<float>(temp_vibration_vectors[modal][1][node_id] * q_mode);
+                        q_z += static_cast<float>(temp_vibration_vectors[modal][2][node_id] * q_mode);
+                    }
+
+                    q_total += std::sqrt(q_x * q_x + q_y * q_y + q_z * q_z);
+                    //q_total += q_x;
+                    u_x += q_x;
+                    u_y += q_y;
+                    u_z += q_z;
+
                 }
 
-                q_total += std::sqrt(q_x * q_x + q_y * q_y + q_z * q_z);
-                //q_total += q_x;
-                u_x += q_x;
-                u_y += q_y;
-                u_z += q_z;
+            }
 
+            if (color_updated) {
+                q_total = std::abs(q_total) / 8.0;
+                u_x = u_x / 8.0;
+                u_y = u_y / 8.0;
+                u_z = u_z / 8.0;
+                float r, g, b;
+                switch (vol->deform_color_var) {
+                case 0:
+                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                case 1:
+                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                case 2:
+                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                case 3:
+                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                    break;
+                default:
+                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
+                }
+                node->color = { r, g, b };
             }
-            q_total = std::abs(q_total) / 8.0;
-            u_x = u_x / 8.0;
-            u_y = u_y / 8.0;
-            u_z = u_z / 8.0;
-            float r, g, b;
-            switch (vol->deform_color_var) {
-            case 0:
-                getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 1:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 2:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 3:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            default:
-                getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-            }
-            if (color_updated) node->color = { r, g, b };
+
             node->set_state();
-            });
+
+        }
+
+
+        stop = std::chrono::system_clock::now();
+        qDebug() << "node update :" << std::chrono::duration<double>(stop - start).count() << "sec.";
+
+        start = std::chrono::system_clock::now();
 
         digitaltwin_milling_clean_outside_nodes(current, vol);  // 清理当前节点及其子节点中的无效OUTSIDE节点
+
+        stop = std::chrono::system_clock::now();
+        qDebug() << "clean_outside_nodes :" << std::chrono::duration<double>(stop - start).count() << "sec.";
 
         // 释放内存A
         delete[] host_nodes;

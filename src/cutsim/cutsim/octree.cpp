@@ -569,9 +569,13 @@ namespace cutsim {
         root->scale = root_scale;
         root->depth = 0;
 
-        root->center = centerPoint;
+        *root->center = *centerPoint;
+        delete centerPoint;
         root->state = Octnode::UNDECIDED;
         root->prev_state = Octnode::OUTSIDE;
+        root->indexs->x = 0;
+        root->indexs->y = 0;
+        root->indexs->z = 0;
 
         const GLVertex direction[8] = {
             GLVertex(1, 1,-1),   // 0
@@ -585,8 +589,9 @@ namespace cutsim {
         };
 
         for (int n = 0; n < 8; ++n) {
-            root->vertex[n] = new GLVertex(*root->center + direction[n] * root->scale);
+            *root->vertex[n] = *root->center + direction[n] * root->scale;
             root->f[n] = -1;
+            root->vertexnotsaved[n] = 1;
         }
         root->bb.clear();
 #ifdef MULTI_AXIS
@@ -3410,8 +3415,6 @@ namespace cutsim {
         // 返回包含位置类型和顶点ID的结构体
         return VertexPositionInfo(position, vertex1_id, vertex2_id);
     }
-
-
 
 
 

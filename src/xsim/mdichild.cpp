@@ -107,6 +107,36 @@ QString MdiChild::strippedName(const QString &fullFileName)
     return QFileInfo(fullFileName).fileName();
 }
 
+void MdiChild::updateMachineCommData(const std::array<double, 6>& ppp, double rpm, double feed)
+{
+    if (m_commPosXLabel) m_commPosXLabel->setText(QString::number(ppp[0]));
+    if (m_commPosYLabel) m_commPosYLabel->setText(QString::number(ppp[1]));
+    if (m_commPosZLabel) m_commPosZLabel->setText(QString::number(ppp[2]));
+    if (m_commPosALabel) m_commPosALabel->setText(QString::number(ppp[4]));
+    if (m_commPosCLabel) m_commPosCLabel->setText(QString::number(ppp[3]));
+    if (m_commFeedLabel) m_commFeedLabel->setText(QString::number(feed));
+    if (m_commRpmLabel) m_commRpmLabel->setText(QString::number(rpm));
+}
+
+void MdiChild::updateMachineCommToolIndex(int index)
+{
+    if (m_commToolLabel) {
+        m_commToolLabel->setText(QString::number(index));
+    }
+}
+
+void MdiChild::updateMachineCommForceData(QStringList result)
+{
+    if (result.size() < 3) {
+        return;
+    }
+
+    if (m_commForce1Label) m_commForce1Label->setText(result[0]);
+    if (m_commForce2Label) m_commForce2Label->setText(result[1]);
+    if (m_commForce3Label) m_commForce3Label->setText(result[2]);
+}
+
+#if 0
 void MdiChild::onStraightnessDataUpdated(int blade_id, int point_index,
     double stroke_data,
     double straightness_data)
@@ -119,3 +149,4 @@ void MdiChild::onStraightnessDataUpdated(int blade_id, int point_index,
         straightnessWidget->setData(blade_id, point_index, stroke_data, straightness_data);
     }
 }
+#endif

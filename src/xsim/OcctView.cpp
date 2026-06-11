@@ -33,6 +33,117 @@
 #include <AIS_ColorScale.hxx>
 #include <Graphic3d_TransformPers.hxx>
 #include <Aspect_TypeOfColorScalePosition.hxx>
+#include <TCollection_ExtendedString.hxx>
+
+class ColorBarOverlay : public QWidget
+{
+public:
+	explicit ColorBarOverlay(QWidget* parent = nullptr)
+		: QWidget(parent)
+	{
+		setAttribute(Qt::WA_TransparentForMouseEvents);
+		setAttribute(Qt::WA_TranslucentBackground);
+		setAutoFillBackground(false);
+		hide();
+	}
+
+	void setValues(const QString& title, double minValue, double maxValue)
+	{
+		m_title = title;
+		m_minValue = minValue;
+		m_maxValue = maxValue;
+		update();
+	}
+
+protected:
+	void paintEvent(QPaintEvent*) override
+	{
+		QPainter painter(this);
+		painter.setRenderHint(QPainter::Antialiasing, true);
+
+		const QRect panelRect = rect().adjusted(0, 0, -1, -1);
+		painter.setPen(QPen(QColor(60, 60, 60, 190), 1));
+		painter.setBrush(QColor(255, 255, 255, 210));
+		painter.drawRoundedRect(panelRect, 4, 4);
+
+		QFont titleFont = painter.font();
+		titleFont.setPointSize(9);
+		titleFont.setBold(true);
+		painter.setFont(titleFont);
+		painter.setPen(QColor(20, 20, 20));
+		const QRect titleRect(8, 6, width() - 16, 22);
+		painter.drawText(titleRect, Qt::AlignLeft | Qt::AlignVCenter,
+			painter.fontMetrics().elidedText(m_title, Qt::ElideRight, titleRect.width()));
+
+		const int barTop = 34;
+		const int barBottom = height() - 24;
+		const QRect barRect(12, barTop, 20, barBottom - barTop);
+
+		QLinearGradient gradient(barRect.left(), barRect.bottom(), barRect.left(), barRect.top());
+		for (int i = 0; i <= 64; ++i) {
+			const double t = static_cast<double>(i) / 64.0;
+			gradient.setColorAt(t, deformationColor(t));
+		}
+
+		painter.fillRect(barRect, gradient);
+		painter.setPen(QPen(QColor(40, 40, 40), 1));
+		painter.drawRect(barRect);
+
+		QFont labelFont = painter.font();
+		labelFont.setBold(false);
+		labelFont.setPointSize(8);
+		painter.setFont(labelFont);
+		painter.setPen(QColor(20, 20, 20));
+
+		for (int i = 0; i <= 4; ++i) {
+			const double t = static_cast<double>(i) / 4.0;
+			const int y = barRect.bottom() - static_cast<int>(t * barRect.height());
+			painter.drawLine(barRect.right(), y, barRect.right() + 5, y);
+
+			const double value = m_minValue + t * (m_maxValue - m_minValue);
+			const QString label = QString::number(value, 'g', 4);
+			const QRect textRect(barRect.right() + 8, y - 9, width() - barRect.right() - 12, 18);
+			painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, label);
+		}
+	}
+
+private:
+	static QColor deformationColor(double t)
+	{
+		t = qBound(0.0, t, 1.0);
+
+		double r = 0.0;
+		double g = 0.0;
+		double b = 0.0;
+
+		if (t < 0.25) {
+			r = 0.0;
+			g = t / 0.25;
+			b = 1.0;
+		}
+		else if (t < 0.5) {
+			r = 0.0;
+			g = 1.0;
+			b = 1.0 - (t - 0.25) / 0.25;
+		}
+		else if (t < 0.75) {
+			r = (t - 0.5) / 0.25;
+			g = 1.0;
+			b = 0.0;
+		}
+		else {
+			r = 1.0;
+			g = 1.0 - (t - 0.75) / 0.25;
+			b = 0.0;
+		}
+
+		return QColor::fromRgbF(r, g, b);
+	}
+
+	QString m_title = QStringLiteral("Displacement");
+	double m_minValue = 0.0;
+	double m_maxValue = 1.0;
+};
 
 // the key for multi selection :  多选键盘
 #define MULTISELECTIONKEY Qt::ShiftModifier
@@ -230,6 +341,9 @@ void OcctView::paintEvent(QPaintEvent *)
 {
 	//  QApplication::syncX();
 	myView->Redraw();//重绘视图
+	if (m_colorBarOverlay && m_colorBarOverlay->isVisible()) {
+		m_colorBarOverlay->raise();
+	}
 }
 
 void OcctView::resizeEvent(QResizeEvent *)
@@ -239,6 +353,7 @@ void OcctView::resizeEvent(QResizeEvent *)
 	{
 		myView->MustBeResized();
 	}
+	updateColorBarOverlayGeometry();
 }
 
 void OcctView::fitAll()
@@ -1578,73 +1693,65 @@ void OcctView::visualizeVertexBoundaryCondition(const TopoDS_Shape& shape)
 }
 
 #include <Graphic3d_TransformPers.hxx>
+void OcctView::updateColorBarOverlayGeometry()
+{
+	if (!m_colorBarOverlay) {
+		return;
+	}
+
+	const int overlayWidth = 118;
+	int overlayHeight = height() - 32;
+	if (overlayHeight > 430) {
+		overlayHeight = 430;
+	}
+	if (overlayHeight < 180) {
+		overlayHeight = 180;
+	}
+
+	const int x = 12;
+	const int y = height() > overlayHeight + 16 ? height() - overlayHeight - 12 : 8;
+	m_colorBarOverlay->setGeometry(x, y, overlayWidth, overlayHeight);
+}
+
 // 设置颜色条显示/隐藏
 void OcctView::setColorBarVisible(bool visible, const QString& title, double minVal, double maxVal)
 {
 	m_colorBarVisible = visible;
-	
-	if (m_colorScale.IsNull())
-	{
-		// 创建颜色条对象
-		m_colorScale = new AIS_ColorScale();
-		
-		// 设置颜色条大小（宽度，高度）
-		m_colorScale->SetSize(70, 400);
-		
-		// 设置间隔数量（刻度数量）
-		m_colorScale->SetNumberOfIntervals(10);
-		
-		// 设置标签位置（右侧）
-		m_colorScale->SetLabelPosition(Aspect_TOCSP_RIGHT);
-		
-		// 设置颜色条颜色（从蓝色到红色）
-		// OpenCASCADE 默认使用蓝色到红色的渐变
-		
-		// 设置标签在边界显示
-		m_colorScale->SetLabelAtBorder(Standard_True);
-		
-		// 设置颜色条在顶层显示（OSD层）
-		m_colorScale->SetZLayer(Graphic3d_ZLayerId_TopOSD);
 
-		m_colorScale->SetSmoothTransition(true);
-		m_colorScale->SetColor(Quantity_NOC_BLACK);
-		
-		// 设置2D变换持久性，使颜色条固定在屏幕位置（左上角）
-		Handle(Graphic3d_TransformPers) aTrsfPers = new Graphic3d_TransformPers(Graphic3d_TMF_2d, Aspect_TOTP_LEFT_LOWER, Graphic3d_Vec2i(0, 0));
-		m_colorScale->SetTransformPersistence(aTrsfPers);//显示位置
-		//m_colorScale->SetPosition(0,0);
-	}
-	
-	// 如果提供了参数，更新标题和范围
-	if (!title.isEmpty())
-	{
-		setColorScaleTitle(title);
-	}
 	if (minVal != maxVal)
 	{
 		m_displacementMin = minVal;
 		m_displacementMax = maxVal;
 	}
+
+	if (!m_colorScale.IsNull() && myContext->IsDisplayed(m_colorScale)) {
+		myContext->Erase(m_colorScale, Standard_False);
+	}
+
+	if (!m_colorBarOverlay) {
+		m_colorBarOverlay = new ColorBarOverlay(this);
+	}
+
+	if (!title.isEmpty()) {
+		m_colorBarTitle = title;
+	}
+	m_colorBarOverlay->setValues(m_colorBarTitle, m_displacementMin, m_displacementMax);
+	updateColorBarOverlayGeometry();
 	
 	if (visible)
 	{
-		// 显示颜色条
-		if (!myContext->IsDisplayed(m_colorScale))
-		{
-			myContext->Display(m_colorScale, Standard_False);
-		}
-		updateColorScale();
+		m_colorBarOverlay->show();
+		m_colorBarOverlay->raise();
 	}
 	else
 	{
-		// 隐藏颜色条
-		if (myContext->IsDisplayed(m_colorScale))
-		{
-			myContext->Erase(m_colorScale, Standard_False);
-		}
+		m_colorBarOverlay->hide();
 	}
 	
-	myContext->UpdateCurrentViewer();
+	if (visible)
+	{
+		update();
+	}
 }
 
 // 设置 displacement 范围
@@ -1653,39 +1760,32 @@ void OcctView::setDisplacementRange(double minVal, double maxVal)
 	m_displacementMin = minVal;
 	m_displacementMax = maxVal;
 	
-	if (!m_colorScale.IsNull())
-	{
-		updateColorScale();
+	if (m_colorBarOverlay) {
+		m_colorBarOverlay->setValues(m_colorBarTitle, m_displacementMin, m_displacementMax);
+		m_colorBarOverlay->update();
 	}
 }
 
 // 设置颜色条标题
 void OcctView::setColorScaleTitle(const QString& title)
 {
-	if (!m_colorScale.IsNull())
-	{
-		m_colorScale->SetTitle(title.toStdString().c_str());
-		if (myContext->IsDisplayed(m_colorScale))
-		{
-			myContext->Redisplay(m_colorScale, Standard_False);
-			myContext->UpdateCurrentViewer();
-		}
+	if (!m_colorBarOverlay) {
+		m_colorBarOverlay = new ColorBarOverlay(this);
+	}
+	m_colorBarTitle = title.isEmpty() ? QStringLiteral("Displacement") : title;
+	m_colorBarOverlay->setValues(m_colorBarTitle, m_displacementMin, m_displacementMax);
+	updateColorBarOverlayGeometry();
+	if (m_colorBarVisible) {
+		m_colorBarOverlay->show();
+		m_colorBarOverlay->raise();
 	}
 }
 
 // 更新颜色条
 void OcctView::updateColorScale()
 {
-	if (m_colorScale.IsNull())
-		return;
-	
-	// 更新范围
-	m_colorScale->SetRange(m_displacementMin, m_displacementMax);
-	
-	// 更新显示
-	if (myContext->IsDisplayed(m_colorScale))
-	{
-		myContext->Redisplay(m_colorScale, Standard_False);
-		myContext->UpdateCurrentViewer();
+	if (m_colorBarOverlay) {
+		m_colorBarOverlay->setValues(m_colorBarTitle, m_displacementMin, m_displacementMax);
+		m_colorBarOverlay->update();
 	}
 }

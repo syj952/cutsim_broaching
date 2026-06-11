@@ -10,8 +10,19 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCoreApplication>
+#include <QDebug>
+#include <QEventLoop>
+#include <QProcess>
 #include "rapidjson/reader.h"
 #include "rapidjson/error/en.h"
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QProcessEnvironment>
+#include <QProcessEnvironment>
+#include <QSaveFile>
+#include <QSaveFile>
+#include <QTimer>
 using namespace std;
 using namespace rapidjson;
 //using namespace mfem;
@@ -84,34 +95,199 @@ struct Ex12pJsonHandler : public BaseReaderHandler<UTF8<>, Ex12pJsonHandler> {
     bool Int64(int64_t i) { return Double(i); }
     bool Uint64(uint64_t u) { return Double(u); }
 };
+
+
 void MeshIDExport(Octree* tree,const std::string& meshFile,std::vector<GLVertex*>& normalvertices)
 {
     MfemMeshWriter writer(*tree);
     writer.exportMesh(meshFile, normalvertices);
+
 }
 
 static QByteArray extractJsonSegment(const QByteArray &raw)
 {
-    // 优先匹配我们输出的键，找最后一个对象起始位置
-    int start = raw.lastIndexOf("{\"eigenvalues\"");
-    if (start == -1) { start = raw.lastIndexOf("{\"eigenvectors\""); }
-    if (start == -1) { start = raw.lastIndexOf('{'); }
-    if (start == -1) { return QByteArray(); }
+    QByteArray best;
+    int start = raw.indexOf('{');
+    while (start != -1) {
+        int depth = 0;
+        int end = -1;
+        bool inString = false;
+        bool escaped = false;
+        for (int i = start; i < raw.size(); ++i) {
+            const char ch = raw.at(i);
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                }
+                else if (ch == '\\') {
+                    escaped = true;
+                }
+                else if (ch == '"') {
+                    inString = false;
+                }
+                continue;
+            }
 
-    // 顶层花括号配对查找结束位置
-    int depth = 0, end = -1;
-    for (int i = start; i < raw.size(); ++i)
-    {
-        const char ch = raw.at(i);
-        if (ch == '{') { ++depth; }
-        else if (ch == '}')
-        {
-            --depth;
-            if (depth == 0) { end = i; break; }
+            if (ch == '"') {
+                inString = true;
+            }
+            else if (ch == '{') {
+                ++depth;
+            }
+            else if (ch == '}') {
+                --depth;
+                if (depth == 0) {
+                    end = i;
+                    break;
+                }
+            }
+        }
+
+        if (end == -1) {
+            start = raw.indexOf('{', start + 1);
+            continue;
+        }
+
+        const QByteArray candidate = raw.mid(start, end - start + 1);
+        if (candidate.contains("\"eigenvalues\"") && candidate.contains("\"eigenvectors\"")) {
+            best = candidate;
+        }
+
+        start = raw.indexOf('{', end + 1);
+    }
+
+    return best;
+}
+
+static QString outputTailForLog(const QByteArray& data)
+{
+    QByteArray tail = data.right(2048);
+    tail.replace('\r', ' ');
+    tail.replace('\n', ' ');
+    return QString::fromLocal8Bit(tail);
+}
+
+static bool isProjectRoot(const QDir& dir)
+{
+    return QFileInfo::exists(dir.filePath("data")) &&
+           QFileInfo::exists(dir.filePath("mfem/fem.exe"));
+}
+
+static QString findProjectRoot()
+{
+    const QStringList starts = {
+        QDir::currentPath(),
+        QCoreApplication::applicationDirPath()
+    };
+
+    QString dataOnlyRoot;
+    for (const QString& start : starts) {
+        QDir dir(start);
+        dir.makeAbsolute();
+        for (int i = 0; i < 5; ++i) {
+            if (isProjectRoot(dir)) {
+                return QDir::cleanPath(dir.absolutePath());
+            }
+            if (dataOnlyRoot.isEmpty() &&
+                QFileInfo::exists(dir.filePath("data"))) {
+                dataOnlyRoot = QDir::cleanPath(dir.absolutePath());
+            }
+            if (!dir.cdUp()) {
+                break;
+            }
         }
     }
-    if (end == -1) { return QByteArray(); }
-    return raw.mid(start, end - start + 1);
+
+    if (!dataOnlyRoot.isEmpty()) {
+        return dataOnlyRoot;
+    }
+
+    return QDir::cleanPath(QDir::currentPath());
+}
+
+static QString resolveMeshPathForRead(const QString& path,
+                                      const QString& projectRoot)
+{
+    const QFileInfo pathInfo(path);
+    if (pathInfo.isAbsolute()) {
+        return QDir::cleanPath(pathInfo.absoluteFilePath());
+    }
+
+    const QStringList candidates = {
+        QDir(projectRoot).filePath(path),
+        QDir(QDir(projectRoot).filePath("data")).filePath(path)
+    };
+
+    for (const QString& candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return QDir::cleanPath(QFileInfo(candidate).absoluteFilePath());
+        }
+    }
+
+    return QDir::cleanPath(QDir(projectRoot).filePath(path));
+}
+
+static bool saveJsonFile(const QString& path, const QByteArray& jsonBytes)
+{
+    QFileInfo info(path);
+    if (!QDir().mkpath(info.absolutePath())) {
+        qDebug() << "无法创建 JSON 输出目录:" << info.absolutePath();
+        return false;
+    }
+
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly)) {
+        qDebug() << "无法写入 JSON 文件:" << path << out.errorString();
+        return false;
+    }
+
+    const qint64 written = out.write(jsonBytes);
+    if (written != jsonBytes.size()) {
+        qDebug() << "JSON 写入不完整:" << path << "written:" << written << "expected:" << jsonBytes.size();
+        out.cancelWriting();
+        return false;
+    }
+
+    if (!out.commit()) {
+        qDebug() << "无法写入 JSON 文件:" << path << out.errorString();
+        return false;
+    }
+
+    qDebug() << "JSON 已保存到文件:" << path << ", 字节数:" << jsonBytes.size();
+    return true;
+}
+
+static QByteArray buildCombinedOutput(const QByteArray& stdoutBytes, const QByteArray& stderrBytes)
+{
+    QByteArray combined = stdoutBytes;
+    if (!stderrBytes.isEmpty()) {
+        combined.append('\n');
+        combined.append(stderrBytes);
+    }
+    return combined;
+}
+
+static bool parseEigenJson(const QByteArray& jsonBytes,
+                           std::vector<double>& eigenvalues,
+                           std::vector<std::vector<double>>& eigenvectors)
+{
+    Reader reader;
+    StringStream ss(jsonBytes.constData());
+    Ex12pJsonHandler handler(eigenvalues, eigenvectors);
+    ParseResult result = reader.Parse<kParseNanAndInfFlag>(ss, handler);
+
+    if (!result) {
+        qDebug() << "JSON 解析失败 (rapidjson): " << GetParseError_En(result.Code())
+            << " Offset:" << result.Offset();
+        return false;
+    }
+
+    qDebug() << "JSON 解析成功 (rapidjson流式解析)。eigenvalues:" << eigenvalues.size()
+        << "eigenvectors:" << eigenvectors.size();
+    if (!eigenvectors.empty()) {
+        qDebug() << "eigenvectors dims: " << eigenvectors.size() << "x" << eigenvectors[0].size();
+    }
+    return true;
 }
 
 void runEx12p(const std::string& meshFile,
@@ -119,49 +295,91 @@ void runEx12p(const std::string& meshFile,
               std::vector<double>& eigenvalues,
               std::vector<std::vector<double>>& eigenvectors)
 {
-    qDebug() << "开始调用 mfem 程序...";
-    QProcess *ex12pProcess = new QProcess(nullptr);
-    //ex12pProcess->setProcessChannelMode(QProcess::MergedChannels);
+    if (materialprops.size() < 3) {
+        qDebug() << "runEx12p materialprops size invalid:" << materialprops.size();
+        return;
+    }
+
+    qDebug() << "Starting mfem modal solver...";
+
+    QProcess* ex12pProcess = new QProcess(nullptr);
     ex12pProcess->setProcessChannelMode(QProcess::SeparateChannels);
-    //QString program = "mpirun"; // linux
-    //QString program = "mpiexec"; // windows
-    //QStringList arguments;
-    //arguments << "-np" << "1";
-    //arguments << "mfem/fem.exe";
-    QString program = "mfem/fem.exe"; // windows
+
+    const QString projectRoot = findProjectRoot();
+    const QString program = QDir(projectRoot).filePath("mfem/fem.exe");
+    const QString mfemDir = QDir(projectRoot).filePath("mfem");
+    const QString meshPath =
+        resolveMeshPathForRead(QString::fromStdString(meshFile), projectRoot);
+
+    ex12pProcess->setWorkingDirectory(projectRoot);
+
+    qDebug() << "ex12p projectRoot:" << projectRoot;
+    qDebug() << "ex12p program:" << program;
+    qDebug() << "ex12p mesh path:" << meshPath
+             << "exists:" << QFileInfo::exists(meshPath);
+
+    if (!QFileInfo::exists(meshPath)) {
+        qDebug() << "ex12p mesh file not found, abort:" << meshPath;
+        ex12pProcess->deleteLater();
+        return;
+    }
+
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert("PATH", mfemDir + QDir::listSeparator() + env.value("PATH"));
+    ex12pProcess->setProcessEnvironment(env);
+
     QStringList arguments;
-    // 改为使用传入的 meshFile
-    arguments << "-m" << QString::fromStdString(meshFile);
+    arguments << "-m" << QDir::toNativeSeparators(meshPath);
     arguments << "--rho" << QString::number(materialprops[0], 'f', 12);
     arguments << "--young" << QString::number(materialprops[1], 'f', 2);
-    arguments << "--nu" << QString::number(materialprops[2], 'f', 2);    
+    arguments << "--nu" << QString::number(materialprops[2], 'f', 2);
     arguments << "-no-vis";
 
     QByteArray allOutput;
-    QObject::connect(ex12pProcess, &QProcess::readyReadStandardOutput, ex12pProcess, [ex12pProcess, &allOutput]() {
-        const QByteArray chunk = ex12pProcess->readAllStandardOutput();
-        allOutput.append(chunk); //直接累积到 allOutput        
-        //qDebug().noquote() << "[ex12p]" << chunk; //// 不在终端打印 JSON 内容，
+    QByteArray allError;
+
+    QObject::connect(ex12pProcess, &QProcess::readyReadStandardOutput,
+                     ex12pProcess, [ex12pProcess, &allOutput]() {
+        allOutput.append(ex12pProcess->readAllStandardOutput());
     });
 
-    QObject::connect(ex12pProcess, &QProcess::errorOccurred, ex12pProcess, [](QProcess::ProcessError e) {
-        qDebug() << "ex12p error:" << e;
+    QObject::connect(ex12pProcess, &QProcess::readyReadStandardError,
+                     ex12pProcess, [ex12pProcess, &allError]() {
+        allError.append(ex12pProcess->readAllStandardError());
     });
-    QObject::connect(ex12pProcess, &QProcess::stateChanged, ex12pProcess, [](QProcess::ProcessState s) {
-        qDebug() << "ex12p state:" << s;
+
+    QObject::connect(ex12pProcess, &QProcess::errorOccurred,
+                     ex12pProcess, [ex12pProcess](QProcess::ProcessError e) {
+        qDebug() << "ex12p error:" << e << ex12pProcess->errorString();
+        qDebug() << "ex12p program:" << ex12pProcess->program();
+        qDebug() << "ex12p workingDirectory:" << ex12pProcess->workingDirectory();
+        qDebug() << "ex12p arguments:" << ex12pProcess->arguments();
     });
+
+    qDebug() << "ex12p arguments:" << arguments;
 
     ex12pProcess->start(program, arguments);
+    if (!ex12pProcess->waitForStarted(5000)) {
+        qDebug() << "ex12p FailedToStart:" << ex12pProcess->errorString();
+        qDebug() << "ex12p fem.exe exists:" << QFileInfo::exists(program);
+        ex12pProcess->deleteLater();
+        return;
+    }
+
     ex12pProcess->closeWriteChannel();
 
     QEventLoop loop;
     QTimer timeout;
     timeout.setSingleShot(true);
 
-    QObject::connect(ex12pProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                     &loop, &QEventLoop::quit);
-    QObject::connect(&timeout, &QTimer::timeout, &timeout, [ex12pProcess, &loop]() {
-        qDebug() << "ex12p 超时，尝试终止进程";
+    QObject::connect(ex12pProcess,
+                     QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                     &loop,
+                     &QEventLoop::quit);
+
+    QObject::connect(&timeout, &QTimer::timeout, &timeout,
+                     [ex12pProcess, &loop]() {
+        qDebug() << "ex12p timeout, killing process.";
         if (ex12pProcess->state() == QProcess::Running) {
             ex12pProcess->kill();
         }
@@ -172,52 +390,34 @@ void runEx12p(const std::string& meshFile,
     loop.exec();
 
     allOutput.append(ex12pProcess->readAllStandardOutput());
+    allError.append(ex12pProcess->readAllStandardError());
 
-    {
-        const QByteArray jsonBytes = extractJsonSegment(allOutput);
+    const QByteArray combinedOutput = buildCombinedOutput(allOutput, allError);
+    const QByteArray jsonBytes = extractJsonSegment(combinedOutput);
+    const QString jsonOutPath =
+        QDir(QDir(projectRoot).filePath("data")).filePath("eigen_results.json");
 
-        // 将 JSON 保存到文本文件，不在终端显示
-        const QString jsonOutPath = QStringLiteral("data/eigen_results.json");
-        QFile out(jsonOutPath);
-        if (out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            out.write(jsonBytes);
-            out.close();
-            qDebug() << "JSON 已保存到文件:" << jsonOutPath << ", 字节数:" << jsonBytes.size();
-        } else {
-            qDebug() << "无法写入 JSON 文件:" << jsonOutPath;
+    if (jsonBytes.isEmpty()) {
+        qDebug() << "No valid eigen JSON extracted.";
+        qDebug() << "ex12p stdout bytes:" << allOutput.size()
+                 << "stderr bytes:" << allError.size();
+        if (!allError.isEmpty()) {
+            qDebug().noquote() << "ex12p stderr tail:" << outputTailForLog(allError);
         }
-        if (jsonBytes.isEmpty()) {
-            qDebug() << "未能提取到有效的 JSON 数据段";
+        if (!allOutput.isEmpty()) {
+            qDebug().noquote() << "ex12p stdout tail:" << outputTailForLog(allOutput);
         }
-        else {
-            Reader reader;
-            StringStream ss(jsonBytes.constData());
-            Ex12pJsonHandler handler(eigenvalues, eigenvectors);
-            // kParseNumbersAsStringsFlag is not needed, we parse doubles directly
-            // 启用 kParseNanAndInfFlag 以支持 NaN 和 Infinity，这在科学计算中很常见
-            ParseResult result = reader.Parse<kParseNanAndInfFlag>(ss, handler);
-
-            if (!result) {
-                qDebug() << "JSON 解析失败 (rapidjson): " << GetParseError_En(result.Code())
-                    << " Offset:" << result.Offset();
-            }
-            else {
-                qDebug() << "JSON 解析成功 (rapidjson流式解析)。eigenvalues:" << eigenvalues.size()
-                    << "eigenvectors:" << eigenvectors.size();
-                if (!eigenvectors.empty()) {
-                    qDebug() << "eigenvectors dims: " << eigenvectors.size() << "x" << eigenvectors[0].size();
-                }
-            }
-        }
+    } else {
+        saveJsonFile(jsonOutPath, jsonBytes);
+        parseEigenJson(jsonBytes, eigenvalues, eigenvectors);
     }
 
-    int exitCode = ex12pProcess->exitCode();
-    //qDebug() << "ex12p 程序执行完成，退出代码:" << exitCode;
+    qDebug() << "ex12p finished. exitCode:" << ex12pProcess->exitCode();
 
     ex12pProcess->deleteLater();
-    qDebug() << "ex12p 程序调用完成，主程序继续执行...";
-
 }
+
+
 
 static bool isResidualReleaseRoot(const QDir& dir)
 {
@@ -352,6 +552,68 @@ static QString findMpiExecProgram(const QString& projectRoot)
     return findProgramOnPath(QStringLiteral("mpiexec.exe"));
 }
 
+static QString findGLVisProgram(const QString& projectRoot)
+{
+    const QString overridePath =
+        QString::fromLocal8Bit(qgetenv("XCUTSIM_GLVIS")).trimmed();
+    if (!overridePath.isEmpty() && QFileInfo::exists(overridePath)) {
+        return QDir::cleanPath(QFileInfo(overridePath).absoluteFilePath());
+    }
+
+    const QStringList candidates = {
+        QDir(projectRoot).filePath("mfem/glvis/glvis.exe"),
+        QDir(projectRoot).filePath("mfem/glvis.exe"),
+        QDir(projectRoot).filePath("glvis/glvis.exe"),
+        QDir(projectRoot).filePath("glvis.exe"),
+        QStringLiteral("E:/MFEM/glvis-windows/glvis.exe")
+    };
+
+    for (const QString& candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return QDir::cleanPath(candidate);
+        }
+    }
+
+    return findProgramOnPath(QStringLiteral("glvis.exe"));
+}
+
+static bool launchGLVisDetached(const QString& projectRoot,
+                                const QString& meshFile,
+                                const QString& gridFunctionFile)
+{
+    if (!QFileInfo::exists(meshFile)) {
+        qDebug() << "GLVis launch skipped; mesh file not found:" << meshFile;
+        return false;
+    }
+    if (!QFileInfo::exists(gridFunctionFile)) {
+        qDebug() << "GLVis launch skipped; gf file not found:" << gridFunctionFile;
+        return false;
+    }
+
+    const QString glvisProgram = findGLVisProgram(projectRoot);
+    if (glvisProgram.isEmpty()) {
+        qDebug() << "GLVis launch skipped; glvis.exe was not found.";
+        return false;
+    }
+
+    const QStringList arguments = {
+        QStringLiteral("-m"),
+        QDir::toNativeSeparators(meshFile),
+        QStringLiteral("-g"),
+        QDir::toNativeSeparators(gridFunctionFile)
+    };
+    const QString workingDirectory = QFileInfo(glvisProgram).absolutePath();
+    const bool started =
+        QProcess::startDetached(glvisProgram, arguments, workingDirectory);
+    if (!started) {
+        qDebug() << "Failed to launch GLVis:" << glvisProgram << arguments;
+        return false;
+    }
+
+    qDebug() << "GLVis launched detached:" << glvisProgram << arguments;
+    return true;
+}
+
 static int residualReleaseMpiProcessCount()
 {
     bool ok = false;
@@ -360,7 +622,7 @@ static int residualReleaseMpiProcessCount()
     if (ok && requested > 0) {
         return requested;
     }
-    return 4;
+    return 12;
 }
 
 static bool parseResidualReleaseSummary(const QString& summaryPath,
@@ -422,7 +684,7 @@ int runResidualRelease(
     solverArguments << "--stress-config" << stressConfigPath;
     solverArguments << "--step" << QString::number(stepId);
     solverArguments << "--out" << outputPrefixQt;
-    solverArguments << "-vis";
+    solverArguments << "-no-vis";
 
     QString program = solverProgram;
     QStringList arguments = solverArguments;
@@ -454,11 +716,21 @@ int runResidualRelease(
     QByteArray stderrData;
     QObject::connect(process, &QProcess::readyReadStandardOutput, process,
                      [process, &stdoutData]() {
-                         stdoutData.append(process->readAllStandardOutput());
+                         const QByteArray chunk = process->readAllStandardOutput();
+                         stdoutData.append(chunk);
+                         if (!chunk.isEmpty()) {
+                             qDebug().noquote() << "[residual_release stdout]"
+                                                << QString::fromLocal8Bit(chunk).trimmed();
+                         }
                      });
     QObject::connect(process, &QProcess::readyReadStandardError, process,
                      [process, &stderrData]() {
-                         stderrData.append(process->readAllStandardError());
+                         const QByteArray chunk = process->readAllStandardError();
+                         stderrData.append(chunk);
+                         if (!chunk.isEmpty()) {
+                             qDebug().noquote() << "[residual_release stderr]"
+                                                << QString::fromLocal8Bit(chunk).trimmed();
+                         }
                      });
     QObject::connect(process, &QProcess::errorOccurred, process,
                      [](QProcess::ProcessError e) {
@@ -522,13 +794,18 @@ int runResidualRelease(
              << "max_uy_mm" << localSummary.max_uy_mm
              << "max_uz_mm" << localSummary.max_uz_mm;
 
+    const QString solutionMeshPath = QFileInfo::exists(outputPrefixQt + "_mesh.mesh")
+        ? outputPrefixQt + "_mesh.mesh"
+        : meshPath;
+    launchGLVisDetached(projectRoot,
+                        solutionMeshPath,
+                        outputPrefixQt + "_disp.gf");
+
     if (summary) {
         *summary = localSummary;
     }
     return 1;
 }
-
-
 
 
 

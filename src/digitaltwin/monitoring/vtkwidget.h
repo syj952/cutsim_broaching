@@ -3,7 +3,7 @@
 
 #include <QWidget>
 #include <QDebug>
-#include <vtkeigen/eigen/Dense>
+#include <Eigen/Dense>
 #include <iostream>
 #include <cmath>
 #include <QLabel>
@@ -95,19 +95,24 @@ public:
     void loadMchFile(const QString &filePath);
     //void linshi(double ppp[6], double act_rpm, double act_feed);
     void linshi(const std::array<double, 6>& ppp, double act_rpm, double act_feed);
+    void linshi_GCode(const std::array<double, 6>& ppp, double act_rpm, double act_feed);
     void linshi_toolindex(int index);
     void linshi_2(QStringList result);
     void onlengthToolTipUpdated(double lengthToolTip, const QVector<double>& workpieceOffset, const QVector<double>& manualOffset);
     void computeToolTip();
+    void setInfoOverlayVisible(bool visible);
+    void setColorChannelIndex(int index);
 
 private:
     double force_port[3] = {0, 0, 0};
-    double g_machcoor_to_vtk[3] = {-564.241, 396.641, 44.951};//z: +¦¤cnc +151.672 +µ¶³¤157.065 -600
+    double g_machcoor_to_vtk[3] = { -564.241, 396.641, 44.951 };//z: +¦¤cnc +151.672 +µ¶³¤157.065 -600
     double toolTipLength;
     double g_workpieceOffset[3];
     double g_manualOffset[3];
     std::array<double, 8> mchData{};
     double v_rpm;
+    double Coor_workpiece_to_vtkworld[3] = { 0, 0, 151.672 }; //{ 0, 0, 151.672 };
+    int CallCutsimCounts = 0;
 
 private:
     vtkSmartPointer<vtkMatrix4x4> cloneMatrix(vtkMatrix4x4* src) const;

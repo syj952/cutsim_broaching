@@ -5,6 +5,7 @@
 #include <QtCharts/QChartView>
 #include <QtCharts/QLineSeries>
 #include <QtCharts/QValueAxis>
+#include <QString>
 
 QT_CHARTS_USE_NAMESPACE
 
@@ -19,6 +20,8 @@ public:
 
     // ������ݣ����翪ʼ��һ������ʱ��
     void clearData();
+    bool exportDataToCsv(const QString& filePath, QString* errorMessage = nullptr) const;
+    bool hasData() const;
 
 private:
     void setupUI();

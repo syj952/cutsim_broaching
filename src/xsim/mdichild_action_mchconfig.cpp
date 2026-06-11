@@ -22,7 +22,11 @@ void MdiChild::RunMchConfig()
         // 只在首次创建时建立连接，后续复用
         connect(configWidget, &MchConfig::mchFileSelected, this->p_VtkWidget, &VTKWidget::loadMchFile, Qt::UniqueConnection);
         connect(configWidget, &MchConfig::mchDataSignal, this->p_VtkWidget, &VTKWidget::linshi, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchDataSignal, this, &MdiChild::updateMachineCommData, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchDataSignal_forGCode, this->p_VtkWidget, &VTKWidget::linshi_GCode, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchDataSignal_forGCode, this, &MdiChild::updateMachineCommData, Qt::UniqueConnection);
         connect(configWidget, &MchConfig::mchSingleDataSignal, this->p_VtkWidget, &VTKWidget::linshi_toolindex, Qt::UniqueConnection);
+        connect(configWidget, &MchConfig::mchSingleDataSignal, this, &MdiChild::updateMachineCommToolIndex, Qt::UniqueConnection);
         connect(configWidget, &MchConfig::lengthToolTipUpdated, this->p_VtkWidget, &VTKWidget::onlengthToolTipUpdated, Qt::UniqueConnection);
 
         QVBoxLayout* layout = new QVBoxLayout(dialog);
