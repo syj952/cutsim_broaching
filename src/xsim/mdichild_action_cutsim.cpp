@@ -18,6 +18,7 @@
 #include <QMessageBox>
 #include "AngleDialog.h"
 #include <QPushButton>
+#include <QCheckBox>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <AIS_Triangulation.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -268,6 +269,10 @@ void MdiChild::RunCutsim()
     simulationLayout->addWidget(steptime_MFEM_Edit);
     broachingLayout->addLayout(simulationLayout);
 
+    QCheckBox* residualStressCheck = new QCheckBox("启用加工残余应力测试");
+    residualStressCheck->setChecked(true);
+    broachingLayout->addWidget(residualStressCheck);
+
     // 约束
     QHBoxLayout* constraintLayout = new QHBoxLayout();
     QLabel* constraintsLabel = new QLabel("Constrains:");
@@ -346,6 +351,7 @@ void MdiChild::RunCutsim()
         broachpar.simulation[0] = totaltimeEdit->text().toDouble();
         broachpar.simulation[1] = steptime_material_removal_Edit->text().toDouble();
         broachpar.simulation[2] = steptime_MFEM_Edit->text().toDouble();
+        broachpar.enable_machining_residual_stress = residualStressCheck->isChecked();
         broachpar.force_coefs[0][0] = a0KcEdit->text().toDouble();
         broachpar.force_coefs[0][1] = a1KcEdit->text().toDouble();
         broachpar.force_coefs[0][2] = a2KcEdit->text().toDouble();
@@ -806,6 +812,9 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
     myBroach->setConstraints(broachpar.constrain_limits);
     myBroach->setVelocity(broachpar.velocity[0], broachpar.velocity[1], broachpar.velocity[2]);
     myBroach->setSimulationTimes(broachpar.simulation[0], broachpar.simulation[1], broachpar.simulation[2]); // total simulation time, increment time, very time for modal analysis
+    myBroach->setResidualReleaseEnabled(broachpar.enable_machining_residual_stress);
+    qDebug() << "Machining residual stress test enabled:"
+             << broachpar.enable_machining_residual_stress;
     myBroach->newBroach(broachpar.force_coefs);
     myBroach->addBroachs(edgePointsfile);
     //myBroach->performFEMSimulation(h_MyViewer);

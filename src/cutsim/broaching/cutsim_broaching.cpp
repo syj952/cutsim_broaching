@@ -166,6 +166,12 @@ bool writeResidualStressConfigSnapshot(const QString& baseConfigPath,
     root["machining_event_count"] = events.size();
     root["machining_events"] = events;
 
+    qDebug() << "Writing residual stress config snapshot:"
+             << snapshotPath
+             << "step" << stepId
+             << "stroke_mm" << strokeMm
+             << "machining_event_count" << events.size();
+
     const QFileInfo snapshotInfo(snapshotPath);
     QDir().mkpath(snapshotInfo.absolutePath());
 

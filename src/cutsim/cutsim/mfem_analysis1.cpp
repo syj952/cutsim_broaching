@@ -314,6 +314,55 @@ static QString findResidualReleaseProgram(const QString& projectRoot)
     return candidates.front();
 }
 
+static QString findProgramOnPath(const QString& programName)
+{
+    const QString pathValue = QString::fromLocal8Bit(qgetenv("PATH"));
+    const QStringList entries = pathValue.split(';', QString::SkipEmptyParts);
+    for (const QString& entry : entries) {
+        const QString candidate = QDir(entry).filePath(programName);
+        if (QFileInfo::exists(candidate)) {
+            return QDir::cleanPath(candidate);
+        }
+    }
+    return QString();
+}
+
+static QString findMpiExecProgram(const QString& projectRoot)
+{
+    const QString overridePath =
+        QString::fromLocal8Bit(qgetenv("XCUTSIM_MPIEXEC")).trimmed();
+    if (!overridePath.isEmpty() && QFileInfo::exists(overridePath)) {
+        return QDir::cleanPath(QFileInfo(overridePath).absoluteFilePath());
+    }
+
+    const QStringList candidates = {
+        QDir(projectRoot).filePath("mfem/mpiexec.exe"),
+        QDir(projectRoot).filePath("mpiexec.exe"),
+        QStringLiteral("C:/Program Files/Microsoft MPI/Bin/mpiexec.exe"),
+        QStringLiteral("C:/Program Files (x86)/Microsoft MPI/Bin/mpiexec.exe"),
+        QStringLiteral("C:/Program Files (x86)/Microsoft SDKs/MPI/Bin/mpiexec.exe")
+    };
+
+    for (const QString& candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return QDir::cleanPath(candidate);
+        }
+    }
+
+    return findProgramOnPath(QStringLiteral("mpiexec.exe"));
+}
+
+static int residualReleaseMpiProcessCount()
+{
+    bool ok = false;
+    const int requested =
+        QString::fromLocal8Bit(qgetenv("XCUTSIM_RESIDUAL_MPI_NP")).toInt(&ok);
+    if (ok && requested > 0) {
+        return requested;
+    }
+    return 4;
+}
+
 static bool parseResidualReleaseSummary(const QString& summaryPath,
                                         ResidualReleaseSummary& summary)
 {
@@ -364,15 +413,34 @@ int runResidualRelease(
         QDir().mkpath(outputInfo.path());
     }
 
-    const QString program = findResidualReleaseProgram(projectRoot);
-    QStringList arguments;
-    arguments << "-m" << meshPath;
-    arguments << "--young" << QString::number(young, 'f', 6);
-    arguments << "--nu" << QString::number(poisson, 'f', 8);
-    arguments << "--bc-attr" << QString::number(fixedBoundaryAttr);
-    arguments << "--stress-config" << stressConfigPath;
-    arguments << "--step" << QString::number(stepId);
-    arguments << "--out" << outputPrefixQt;
+    const QString solverProgram = findResidualReleaseProgram(projectRoot);
+    QStringList solverArguments;
+    solverArguments << "-m" << meshPath;
+    solverArguments << "--young" << QString::number(young, 'f', 6);
+    solverArguments << "--nu" << QString::number(poisson, 'f', 8);
+    solverArguments << "--bc-attr" << QString::number(fixedBoundaryAttr);
+    solverArguments << "--stress-config" << stressConfigPath;
+    solverArguments << "--step" << QString::number(stepId);
+    solverArguments << "--out" << outputPrefixQt;
+    solverArguments << "-vis";
+
+    QString program = solverProgram;
+    QStringList arguments = solverArguments;
+    const int mpiRanks = residualReleaseMpiProcessCount();
+    const QString mpiExec = findMpiExecProgram(projectRoot);
+    if (mpiRanks > 1 && !mpiExec.isEmpty()) {
+        program = mpiExec;
+        arguments.clear();
+        arguments << "-n" << QString::number(mpiRanks) << solverProgram;
+        arguments << solverArguments;
+        qDebug() << "Residual release MPI enabled:"
+                 << "mpiexec" << mpiExec
+                 << "ranks" << mpiRanks;
+    } else if (mpiRanks > 1) {
+        qDebug() << "Residual release MPI launcher not found; running single process."
+                 << "Set XCUTSIM_MPIEXEC to an MS-MPI mpiexec.exe path to enable"
+                 << mpiRanks << "ranks.";
+    }
 
     qDebug() << "Starting residual release solver:" << program
              << "workingDir" << projectRoot
@@ -459,9 +527,6 @@ int runResidualRelease(
     }
     return 1;
 }
-
-
-
 
 
 

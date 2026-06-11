@@ -42,6 +42,7 @@ struct BroachParameters {
     std::array<std::array<double, 2>, 3> constrain_limits;
     std::array< double, 3> simulation = { 0 };
     std::array<std::array<double, 11>, 4> force_coefs;
+    bool enable_machining_residual_stress = false;
 };
 
 struct Segment {

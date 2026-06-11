@@ -1498,6 +1498,9 @@ namespace cutsim {
     }
 
     void broaching_AptCutterVolume::setMachiningResidualEventsEnabled(bool enabled) {
+        if (enabled && !machining_residual_events_enabled) {
+            machining_contact_events.clear();
+        }
         machining_residual_events_enabled = enabled;
     }
 
