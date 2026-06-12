@@ -38,7 +38,6 @@
     <ClCompile Include="src\xsim\OCCT_ShapeImport.cpp" />
     <ClCompile Include="src\xsim\OcctView.cpp" />
     <ClCompile Include="src\xsim\OcctWindow.cpp" />
-    <ClCompile Include="src\xsim\OcctWindow.cxx" />
     <ClCompile Include="src\xsim\ProjectTree.cpp" />
     <ClCompile Include="src\xsim\PropertyView.cpp" />
     <ClCompile Include="src\xsim\QShapeExportUI.cpp" />

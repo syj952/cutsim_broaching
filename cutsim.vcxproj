@@ -186,7 +186,6 @@
     <ClCompile Include="src\xsim\MyViewer.cpp" />
     <ClCompile Include="src\xsim\OcctView.cpp" />
     <ClCompile Include="src\xsim\OcctWindow.cpp" />
-    <ClCompile Include="src\xsim\OcctWindow.cxx" />
     <ClCompile Include="src\xsim\OCCT_GraphDriver.cpp" />
     <ClCompile Include="src\xsim\OCCT_GraphOperations.cpp" />
     <ClCompile Include="src\xsim\OCCT_ShapeExport.cpp" />
