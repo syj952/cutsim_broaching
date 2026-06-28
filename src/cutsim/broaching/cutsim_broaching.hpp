@@ -94,6 +94,7 @@ namespace broaching {
         int setVisulization(int* visulization_item, std::array<double, 2> visulization_limits);
         int performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h_MyViewer, int* visulization_item, std::array<double, 2> visulization_limits);
         void setResidualReleaseEnabled(bool enabled) { residualReleaseEnabled = enabled; }
+        void setModalAnalysisEnabled(bool enabled) { modalAnalysisEnabled = enabled; }
 
         // 设置用户选择的刀刃和点
         void setSelectedBladePoint(int blade_id, int point_index);
@@ -118,9 +119,10 @@ namespace broaching {
         double incrementive_time;
         double modalsteps;
         double density = 8.2e-9;
-        double youngsmodulus = 205e3;
+        double youngsmodulus = 410e3;
         double poisson = 0.3;
         bool residualReleaseEnabled = false;
+        bool modalAnalysisEnabled = false;
 
         int peformModalAnalysis();
         int performResidualRelease(int stepId, double stroke_mm);

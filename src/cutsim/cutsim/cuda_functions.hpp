@@ -25,6 +25,10 @@ namespace cutsim {
 
         //表面可视化
         std::vector<Octnode*> nodes_to_process;
+        size_t check_leaf_shared_vertex_f_consistency(const std::vector<Octnode*>& leaf_nodes,
+            int normalvertices_size,
+            double tolerance = 1e-9,
+            size_t max_report_count = 20) const;
 
         double distanceToSegment(const GLVertex& p, const GLVertex& a, const GLVertex& b) const {
             double ax = a.x, az = a.z;
@@ -41,6 +45,12 @@ namespace cutsim {
 
             // 计算投影参数t = (AP·AB)/(AB·AB)
             double t = ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz);
+            if (t < 0.0) {
+                t = 0.0;
+            }
+            else if (t > 1.0) {
+                t = 1.0;
+            }
 
             // 只有当投影点在线段内部(0≤t≤1)时才计算垂距
             if (t >= 0.0 && t <= 1.0) {

@@ -1708,8 +1708,8 @@ void OcctView::updateColorBarOverlayGeometry()
 		overlayHeight = 180;
 	}
 
-	const int x = 12;
-	const int y = height() > overlayHeight + 16 ? height() - overlayHeight - 12 : 8;
+	const int x = width() > overlayWidth + 24 ? width() - overlayWidth - 12 : 12;
+	const int y = height() > overlayHeight + 16 ? (height() - overlayHeight) / 2 : 8;
 	m_colorBarOverlay->setGeometry(x, y, overlayWidth, overlayHeight);
 }
 

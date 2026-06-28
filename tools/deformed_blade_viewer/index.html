@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deformed Blade Points Viewer</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="title-block">
+      <h1>Deformed blade points</h1>
+      <div id="subtitle" class="muted">data/DeformedBladePoints</div>
+    </div>
+
+    <div class="toolbar">
+      <button id="openDirBtn" type="button">选择目录</button>
+      <button id="openFilesBtn" type="button">导入TXT</button>
+
+      <label class="field">
+        <span>工况</span>
+        <select id="caseSelect" disabled></select>
+      </label>
+
+      <label class="field">
+        <span>样本</span>
+        <select id="sampleMode">
+          <option value="maxDxz">max dxz</option>
+          <option value="last">last sample</option>
+          <option value="first">first sample</option>
+        </select>
+      </label>
+
+      <label class="field range-field">
+        <span>箭头</span>
+        <input id="arrowScale" type="range" min="0" max="1000" step="25" value="500">
+        <output id="arrowScaleOut">500x</output>
+      </label>
+
+      <button id="exportBtn" type="button" disabled>导出PNG</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section id="dropZone" class="drop-zone">
+      <div class="drop-title">未加载数据</div>
+      <div class="drop-subtitle">DeformedBladePoints TXT</div>
+    </section>
+
+    <section id="summary" class="summary" hidden></section>
+    <section id="bladeGrid" class="blade-grid" hidden></section>
+  </main>
+
+  <input id="dirInput" type="file" webkitdirectory multiple hidden>
+  <input id="fileInput" type="file" accept=".txt,text/plain" multiple hidden>
+
+  <script src="./app.js"></script>
+</body>
+</html>

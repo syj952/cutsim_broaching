@@ -1,0 +1,295 @@
+:root {
+  color-scheme: light;
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --ink: #15191f;
+  --muted: #64707d;
+  --line: #d9dee5;
+  --grid: #e9edf2;
+  --blue: #2563eb;
+  --orange: #f97316;
+  --green: #16a34a;
+  --red: #cf3d3a;
+  --shadow: 0 1px 2px rgba(17, 24, 39, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button,
+select {
+  height: 34px;
+  border: 1px solid #c9d1dc;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--ink);
+}
+
+button {
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: #9aa9ba;
+}
+
+button:disabled,
+select:disabled {
+  color: #9aa5b1;
+  cursor: default;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+}
+
+.title-block {
+  min-width: 260px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.muted {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.field select {
+  min-width: 210px;
+  padding: 0 28px 0 9px;
+}
+
+.range-field input {
+  width: 132px;
+}
+
+.range-field output {
+  width: 44px;
+  color: var(--ink);
+  text-align: right;
+}
+
+.content {
+  width: min(1840px, calc(100vw - 32px));
+  margin: 16px auto 42px;
+}
+
+.drop-zone {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  border: 1px dashed #aeb9c7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.drop-zone.drag-over {
+  border-color: var(--blue);
+  background: #f8fbff;
+}
+
+.drop-zone[hidden] {
+  display: none;
+}
+
+.drop-title {
+  font-size: 24px;
+  font-weight: 650;
+}
+
+.drop-subtitle {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.summary[hidden],
+.blade-grid[hidden] {
+  display: none;
+}
+
+.metric {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metric-value {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.plot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.plot-panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.plot-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 12px 0;
+}
+
+.plot-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.plot-stat {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.plot-canvas {
+  display: block;
+  width: 100%;
+}
+
+.shape-canvas {
+  height: 330px;
+}
+
+.profile-canvas {
+  height: 255px;
+}
+
+.empty-message,
+.error-message {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.error-message {
+  border-color: #f4b4b2;
+  color: #9f2523;
+}
+
+@media (max-width: 980px) {
+  .app-header {
+    position: static;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar {
+    justify-content: flex-start;
+  }
+
+  .field select {
+    min-width: 180px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .plot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .content {
+    width: calc(100vw - 20px);
+    margin-top: 10px;
+  }
+
+  .toolbar,
+  .field {
+    width: 100%;
+  }
+
+  button,
+  .field select {
+    width: 100%;
+  }
+
+  .range-field {
+    display: grid;
+    grid-template-columns: 42px 1fr 44px;
+  }
+
+  .plot-grid {
+    grid-template-columns: 1fr;
+  }
+}

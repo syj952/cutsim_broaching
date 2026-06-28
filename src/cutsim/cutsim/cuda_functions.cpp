@@ -9,6 +9,8 @@
 #include <vector>
 #include <stack>
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <unordered_set>
 #include <unordered_map>
 //#include "cuda_diff_volume.hpp"
@@ -161,6 +163,64 @@ extern "C" void cuda_sum_stl(CudaNodeData * host_nodes, int numNodes, StlParams 
 
 namespace cutsim {
 
+    static double selected_deformation_value(int color_var, double q_total, double u_x, double u_y, double u_z)
+    {
+        switch (color_var) {
+        case 1:
+            return u_x;
+        case 2:
+            return u_y;
+        case 3:
+            return u_z;
+        default:
+            return q_total;
+        }
+    }
+
+    template <typename VolumeT>
+    static void update_dynamic_deform_color_range(VolumeT* vol, const std::vector<double>& values, const std::vector<char>& active)
+    {
+        if (!vol) {
+            return;
+        }
+
+        double min_val = std::numeric_limits<double>::max();
+        double max_val = -std::numeric_limits<double>::max();
+        bool found = false;
+
+        for (size_t i = 0; i < values.size(); ++i) {
+            if (!active[i] || !std::isfinite(values[i])) {
+                continue;
+            }
+
+            min_val = std::min(min_val, values[i]);
+            max_val = std::max(max_val, values[i]);
+            found = true;
+        }
+
+        if (!found) {
+            return;
+        }
+
+        if (vol->deform_color_var == 0) {
+            min_val = std::min(0.0, min_val);
+        }
+
+        if (max_val <= min_val && vol->deform_color_var == 0 && max_val == 0.0) {
+            min_val = 0.0;
+            max_val = 1e-9;
+        }
+        else if (max_val <= min_val) {
+            const double scale = std::max(1.0, std::max(std::abs(min_val), std::abs(max_val)));
+            const double padding = scale * 1e-6;
+            min_val -= padding;
+            max_val += padding;
+        }
+
+        vol->deform_color_min = min_val;
+        vol->deform_color_max = max_val;
+    }
+
     static void update_parent_states_from_leaves(const std::vector<Octnode*>& leaf_nodes) {
         std::vector<Octnode*> parents;
         std::unordered_set<Octnode*> seen;
@@ -206,6 +266,112 @@ namespace cutsim {
 
 
     // 构造函数，初始化CUDA状态
+    static int shared_vertex_lookup_id(const GLVertex* vertex, int normalvertices_size)
+    {
+        if (!vertex || vertex->id == -9999999) {
+            return -1;
+        }
+
+        return vertex->id <= 0 ? -vertex->id : vertex->id + normalvertices_size - 1;
+    }
+
+    size_t cuda_functions::check_leaf_shared_vertex_f_consistency(
+        const std::vector<Octnode*>& leaf_nodes,
+        int normalvertices_size,
+        double tolerance,
+        size_t max_report_count) const
+    {
+        struct VertexFRange {
+            double min_f = std::numeric_limits<double>::max();
+            double max_f = -std::numeric_limits<double>::max();
+            const Octnode* min_node = nullptr;
+            const Octnode* max_node = nullptr;
+            int min_corner = -1;
+            int max_corner = -1;
+            GLVertex min_position;
+            GLVertex max_position;
+            size_t count = 0;
+        };
+
+        std::unordered_map<int, VertexFRange> f_by_vertex_id;
+        f_by_vertex_id.reserve(leaf_nodes.size() * 8);
+
+        size_t leaf_count = 0;
+        size_t corner_count = 0;
+        for (Octnode* node : leaf_nodes) {
+            if (!node || !node->isLeaf()) {
+                continue;
+            }
+
+            ++leaf_count;
+            for (int j = 0; j < 8; ++j) {
+                const int vertex_id = shared_vertex_lookup_id(node->vertex[j], normalvertices_size);
+                if (vertex_id < 0) {
+                    continue;
+                }
+
+                const double f = node->f[j];
+                VertexFRange& range = f_by_vertex_id[vertex_id];
+                if (f < range.min_f) {
+                    range.min_f = f;
+                    range.min_node = node;
+                    range.min_corner = j;
+                    range.min_position = *node->vertex[j];
+                }
+                if (f > range.max_f) {
+                    range.max_f = f;
+                    range.max_node = node;
+                    range.max_corner = j;
+                    range.max_position = *node->vertex[j];
+                }
+                ++range.count;
+                ++corner_count;
+            }
+        }
+
+        size_t inconsistent_count = 0;
+        size_t reported_count = 0;
+        for (const auto& pair : f_by_vertex_id) {
+            const int vertex_id = pair.first;
+            const VertexFRange& range = pair.second;
+            if (range.count < 2) {
+                continue;
+            }
+
+            const double diff = range.max_f - range.min_f;
+            if (diff <= tolerance) {
+                continue;
+            }
+
+            ++inconsistent_count;
+            if (reported_count < max_report_count) {
+                qDebug() << "[shared-f-check] mismatch"
+                    << "vertex_id" << vertex_id
+                    << "count" << static_cast<qulonglong>(range.count)
+                    << "diff" << diff
+                    << "min_f" << range.min_f
+                    << "max_f" << range.max_f
+                    << "min_node" << static_cast<const void*>(range.min_node)
+                    << "min_depth" << (range.min_node ? range.min_node->depth : 0)
+                    << "min_corner" << range.min_corner
+                    << "min_xyz" << range.min_position.x << range.min_position.y << range.min_position.z
+                    << "max_node" << static_cast<const void*>(range.max_node)
+                    << "max_depth" << (range.max_node ? range.max_node->depth : 0)
+                    << "max_corner" << range.max_corner
+                    << "max_xyz" << range.max_position.x << range.max_position.y << range.max_position.z;
+                ++reported_count;
+            }
+        }
+
+        qDebug() << "[shared-f-check] leaf_count" << static_cast<qulonglong>(leaf_count)
+            << "corner_count" << static_cast<qulonglong>(corner_count)
+            << "shared_vertex_count" << static_cast<qulonglong>(f_by_vertex_id.size())
+            << "inconsistent_vertex_count" << static_cast<qulonglong>(inconsistent_count)
+            << "tolerance" << tolerance;
+
+        return inconsistent_count;
+    }
+
     static constexpr size_t STL_SUM_NODE_BATCH_SIZE = 65536;
 
     static void fill_cuda_node_data(CudaNodeData& dst, const Octnode* node) {
@@ -459,6 +625,15 @@ namespace cutsim {
         expand_broaching_aabb(aabb, std::get<5>(bb));
         expand_broaching_aabb(aabb, std::get<6>(bb));
         expand_broaching_aabb(aabb, std::get<7>(bb));
+
+        const double padding = std::max(4.0 * vol->cube_resolution_1, 1e-6);
+        aabb.min_x -= padding;
+        aabb.min_y -= padding;
+        aabb.min_z -= padding;
+        aabb.max_x += padding;
+        aabb.max_y += padding;
+        aabb.max_z += padding;
+
         return aabb;
     }
 
@@ -783,6 +958,7 @@ namespace cutsim {
 
 
     // 判断点是否在三角形内
+
     bool cuda_functions::pointInTriangle(float2 a, float2 b, float2 c, float2 p) {
         auto cross = [](float2 a, float2 b, float2 c) {
             return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
@@ -861,9 +1037,9 @@ namespace cutsim {
                                     node_id = current->vertex[3]->id + vol->normalvertices_size - 1;
                                 double c000;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                  //  fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                  //      node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c000 = 0.0;
                                 }
                                 else {
                                     c000 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -875,9 +1051,9 @@ namespace cutsim {
                                     node_id = current->vertex[2]->id + vol->normalvertices_size - 1;
                                 double c100;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                   // fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                   //     node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c100 = 0.0;
                                 }
                                 else {
                                     c100 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -889,9 +1065,9 @@ namespace cutsim {
                                     node_id = current->vertex[1]->id + vol->normalvertices_size - 1;
                                 double c010;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                    //fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                     //   node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c010 = 0.0;
                                 }
                                 else {
                                     c010 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -903,9 +1079,9 @@ namespace cutsim {
                                     node_id = current->vertex[0]->id + vol->normalvertices_size - 1;
                                 double c110;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                    //fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                     //   node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c110 = 0.0;
                                 }
                                 else {
                                     c110 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -917,9 +1093,9 @@ namespace cutsim {
                                     node_id = current->vertex[7]->id + vol->normalvertices_size - 1;
                                 double c001;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                    //fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                    //    node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c001 = 0.0;
                                 }
                                 else {
                                     c001 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -931,9 +1107,9 @@ namespace cutsim {
                                     node_id = current->vertex[6]->id + vol->normalvertices_size - 1;
                                 double c101;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                   // fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                   //     node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c101 = 0.0;
                                 }
                                 else {
                                     c101 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -945,9 +1121,9 @@ namespace cutsim {
                                     node_id = current->vertex[5]->id + vol->normalvertices_size - 1;
                                 double c011;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                  //  fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                  //      node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c011 = 0.0;
                                 }
                                 else {
                                     c011 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -959,9 +1135,9 @@ namespace cutsim {
                                     node_id = current->vertex[4]->id + vol->normalvertices_size - 1;
                                 double c111;
                                 if (node_id < 0 || node_id >= static_cast<int>(vol->temp_vibration_vectors[modal][dir].size())) {
-                                    fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
-                                        node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
-                                    exit(EXIT_FAILURE);
+                                  //  fprintf(stderr, "Error: node_id %d out of bounds for temp_vibration_vectors[%d][%d] with size %zu\n",
+                                  //      node_id, modal, dir, vol->temp_vibration_vectors[modal][dir].size());
+                                    c111 = 0.0;
                                 }
                                 else {
                                     c111 = vol->temp_vibration_vectors[modal][dir][node_id];
@@ -2539,7 +2715,6 @@ namespace cutsim {
 
         // 使用vector代替unordered_map，提高访问速度和缓存友好性
         std::vector<ZData> z2sum_count(max_inside_index + 1);
-
         for (int i = 0; i < host_record_count; ++i) {
 
             int node_id = host_node_ids[i];
@@ -2683,7 +2858,6 @@ namespace cutsim {
             GLVertex P0(blade_points_bottom_x, blade_points_bottom_y, blade_points_bottom_z);
             GLVertex P1(blade_points_up_x, blade_points_up_y, blade_points_up_z);
             double min_distance = std::numeric_limits<double>::max();
-
             // 优化：使用范围查询快速定位角度范围，避免遍历整个map
             auto& real_blade_points_map_ref = vol->real_blade_points_map;
             auto angle_start_iter = real_blade_points_map_ref.lower_bound(angle_start);
@@ -2717,6 +2891,20 @@ namespace cutsim {
             if (min_distance != std::numeric_limits<double>::max()) {
                 cuth_distence = min_distance;
             }
+            if (!std::isfinite(cuth_distence) || cuth_distence < 0.0) {
+                cuth_distence = 0.0;
+            }
+            double max_cuth_distence = 0.2;
+            if (blade_id < static_cast<int>(vol->blade_cut_h.size()) &&
+                z_key < static_cast<int>(vol->blade_cut_h[blade_id].size())) {
+                const double file_cut_h = std::abs(vol->blade_cut_h[blade_id][z_key]);
+                if (file_cut_h > 1e-9) {
+                    max_cuth_distence = std::max(max_cuth_distence, 5.0 * file_cut_h);
+                }
+            }
+            if (cuth_distence > max_cuth_distence) {
+                cuth_distence = max_cuth_distence;
+            }
             //printf("%f ",z_key);
             //printf("%f\n",cuth_distence);
             const_cast<broaching_AptCutterVolume*>(vol)->add_cut_h_map(
@@ -2744,10 +2932,29 @@ namespace cutsim {
         double current_tool_angle = vol->tool_angle;
         auto vibration_q_iter = vol->vibration_q.find(current_tool_angle);
         bool has_vibration_q = (vibration_q_iter != vol->vibration_q.end());
+        std::vector<double> color_values(node_count, 0.0);
+        std::vector<char> color_active(node_count, 0);
+        constexpr int invalid_vertex_node_id = 9999999;
+        std::unordered_map<int, double> min_f_by_node_id;
+        min_f_by_node_id.reserve(node_count * 8);
+
+        for (size_t i = 0; i < node_count; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                const int node_id = host_nodes[i].node_id[j];
+                if (node_id == invalid_vertex_node_id) {
+                    continue;
+                }
+                const double new_f = static_cast<double>(-host_nodes[i].f[j]);
+                auto it = min_f_by_node_id.find(node_id);
+                if (it == min_f_by_node_id.end() || new_f < it->second) {
+                    min_f_by_node_id[node_id] = new_f;
+                }
+            }
+        }
 
         // 优化：使用QtConcurrent并行处理节点更新
         // 捕获this指针以访问类的成员变量和成员函数
-        auto update_node = [this, host_nodes, has_vibration_data, has_vibration_q, vibration_q_iter, vol](size_t i) {
+        auto update_node = [this, host_nodes, has_vibration_data, has_vibration_q, vibration_q_iter, vol, invalid_vertex_node_id, &color_values, &color_active, &min_f_by_node_id](size_t i) {
             Octnode* node = nodes_to_process[i];
             bool updated = false;
             double q_total = 0.0;
@@ -2760,16 +2967,21 @@ namespace cutsim {
             int* node_ids = host_nodes[i].node_id;
 
             for (int j = 0; j < 8; j++) {
-                double new_f = static_cast<double>(-host_f[j]);
+                int node_id = node_ids[j];
+                auto f_it = (node_id == invalid_vertex_node_id)
+                    ? min_f_by_node_id.end()
+                    : min_f_by_node_id.find(node_id);
+                double new_f = (f_it != min_f_by_node_id.end())
+                    ? f_it->second
+                    : static_cast<double>(-host_f[j]);
                 if (new_f < node_f[j]) {
                     node_f[j] = new_f;
                     updated = true;
                 }
                 double q_x = 0.0, q_y = 0.0, q_z = 0.0;
-                int node_id = node_ids[j];
 
                 // 预计算模态数量
-                size_t modal_count = vol->temp_vibration_vectors.size();
+                size_t modal_count = (has_vibration_data && has_vibration_q) ? vol->temp_vibration_vectors.size() : 0;
                 for (size_t modal = 0; modal < modal_count; modal++) {
                     const auto& vibration_q = vibration_q_iter->second;
                     double modal_factor = vibration_q[modal];
@@ -2790,24 +3002,8 @@ namespace cutsim {
             u_x = u_x / 8.0;
             u_y = u_y / 8.0;
             u_z = u_z / 8.0;
-            float r, g, b;
-            switch (vol->deform_color_var) {
-            case 0:
-                getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 1:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 2:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            case 3:
-                getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                break;
-            default:
-                getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-            }
-            node->color = { r, g, b };
+            color_values[i] = selected_deformation_value(vol->deform_color_var, q_total, u_x, u_y, u_z);
+            color_active[i] = 1;
             // 更新节点状态
             node->set_state();
         };
@@ -2820,6 +3016,18 @@ namespace cutsim {
 
         // 使用QtConcurrent并行执行节点更新
         QtConcurrent::blockingMap(indices, update_node);
+        const double shared_f_tolerance = std::max(1e-9, vol->cube_resolution_1 * 1e-6);
+        //check_leaf_shared_vertex_f_consistency(nodes_to_process, vol->normalvertices_size, shared_f_tolerance, 20);
+        update_dynamic_deform_color_range(vol, color_values, color_active);
+        for (size_t i = 0; i < node_count; ++i) {
+            if (!color_active[i]) {
+                continue;
+            }
+
+            float r, g, b;
+            getDeformationColor(color_values[i], vol->deform_color_min, vol->deform_color_max, r, g, b);
+            nodes_to_process[i]->color = { r, g, b };
+        }
         broaching_clean_outside_nodes(current, vol);  // 清理当前节点及其子节点中的无效OUTSIDE节点
 
         delete[] host_nodes;
@@ -3193,6 +3401,8 @@ namespace cutsim {
         bool color_updated = false;
         double q_x = 0.0, q_y = 0.0, q_z = 0.0;
         int node_id;
+        std::vector<double> color_values(node_count, 0.0);
+        std::vector<char> color_active(node_count, 0);
 
         // 创建索引范围，避免在并行处理中查找索引
         // Update Octnode sequentially.
@@ -3242,24 +3452,8 @@ namespace cutsim {
                 u_x = u_x / 8.0;
                 u_y = u_y / 8.0;
                 u_z = u_z / 8.0;
-                float r, g, b;
-                switch (vol->deform_color_var) {
-                case 0:
-                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                case 1:
-                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                case 2:
-                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                case 3:
-                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                default:
-                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                }
-                node->color = { r, g, b };
+                color_values[i] = selected_deformation_value(vol->deform_color_var, q_total, u_x, u_y, u_z);
+                color_active[i] = 1;
             }
 
             node->set_state();
@@ -3269,6 +3463,17 @@ namespace cutsim {
         milling_clean_outside_nodes(current, vol);  // 清理当前节点及其子节点中的无效OUTSIDE节点
 
         // 释放主机内存
+        update_dynamic_deform_color_range(vol, color_values, color_active);
+        for (size_t i = 0; i < node_count; ++i) {
+            if (!color_active[i]) {
+                continue;
+            }
+
+            float r, g, b;
+            getDeformationColor(color_values[i], vol->deform_color_min, vol->deform_color_max, r, g, b);
+            nodes_to_process[i]->color = { r, g, b };
+        }
+
         delete[] blade.blade_points;
         delete[] host_nodes;
 
@@ -3432,6 +3637,8 @@ namespace cutsim {
         bool color_updated = false;
         double q_x = 0.0, q_y = 0.0, q_z = 0.0;
         int node_id;
+        std::vector<double> color_values(node_count, 0.0);
+        std::vector<char> color_active(node_count, 0);
 
         // 创建索引范围，避免在并行处理中查找索引
         // Update Octnode sequentially.
@@ -3479,24 +3686,8 @@ namespace cutsim {
                 u_x = u_x / 8.0;
                 u_y = u_y / 8.0;
                 u_z = u_z / 8.0;
-                float r, g, b;
-                switch (vol->deform_color_var) {
-                case 0:
-                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                case 1:
-                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                case 2:
-                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                case 3:
-                    getDeformationColor(u_x, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                    break;
-                default:
-                    getDeformationColor(q_total, vol->deform_color_min, vol->deform_color_max, r, g, b);
-                }
-                node->color = { r, g, b };
+                color_values[i] = selected_deformation_value(vol->deform_color_var, q_total, u_x, u_y, u_z);
+                color_active[i] = 1;
             }
 
             node->set_state();
@@ -3506,6 +3697,17 @@ namespace cutsim {
 
         stop = std::chrono::system_clock::now();
         qDebug() << "node update :" << std::chrono::duration<double>(stop - start).count() << "sec.";
+
+        update_dynamic_deform_color_range(vol, color_values, color_active);
+        for (size_t i = 0; i < node_count; ++i) {
+            if (!color_active[i]) {
+                continue;
+            }
+
+            float r, g, b;
+            getDeformationColor(color_values[i], vol->deform_color_min, vol->deform_color_max, r, g, b);
+            nodes_to_process[i]->color = { r, g, b };
+        }
 
         start = std::chrono::system_clock::now();
 

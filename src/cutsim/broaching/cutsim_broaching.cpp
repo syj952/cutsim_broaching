@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <cmath>
 #include <iomanip>
@@ -139,6 +140,88 @@ QJsonObject contactEventToJson(const cutsim::broaching_AptCutterVolume::Machinin
     object["sweep_width_mm"] = event.sweep_width_mm;
     object["layer_depth_mm"] = event.layer_depth_mm;
     return object;
+}
+
+void appendModalVectorStats(const QString& filePath,
+                            int runIndex,
+                            double toolAngle,
+                            double newAngle,
+                            const std::vector<double>& eigenvalues,
+                            const std::vector<std::vector<double>>& rawVectors,
+                            const std::vector<std::vector<std::vector<double>>>& usedVectors)
+{
+    const QFileInfo fileInfo(filePath);
+    QDir().mkpath(fileInfo.absolutePath());
+
+    const bool writeHeader = !fileInfo.exists() || fileInfo.size() == 0;
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        qDebug() << "Cannot write modal vector stats:" << filePath;
+        return;
+    }
+
+    QTextStream out(&file);
+    out.setRealNumberNotation(QTextStream::FixedNotation);
+    out.setRealNumberPrecision(12);
+
+    if (writeHeader) {
+        out << "run_index\ttool_angle\tnew_angle\tmode\teigenvalue"
+            << "\traw_count\traw_max_abs\traw_rms"
+            << "\tused_count\tused_max_abs\tused_rms"
+            << "\tused_max_abs_x\tused_max_abs_y\tused_max_abs_z\n";
+    }
+
+    const size_t modeCount = std::max(rawVectors.size(), usedVectors.size());
+    for (size_t mode = 0; mode < modeCount; ++mode) {
+        double rawMaxAbs = 0.0;
+        double rawSumSq = 0.0;
+        size_t rawCount = 0;
+        if (mode < rawVectors.size()) {
+            for (double value : rawVectors[mode]) {
+                const double absValue = std::abs(value);
+                rawMaxAbs = std::max(rawMaxAbs, absValue);
+                rawSumSq += value * value;
+                ++rawCount;
+            }
+        }
+
+        double usedMaxAbs = 0.0;
+        double usedMaxAbsByDof[3] = { 0.0, 0.0, 0.0 };
+        double usedSumSq = 0.0;
+        size_t usedCount = 0;
+        if (mode < usedVectors.size()) {
+            for (size_t dof = 0; dof < usedVectors[mode].size(); ++dof) {
+                for (double value : usedVectors[mode][dof]) {
+                    const double absValue = std::abs(value);
+                    usedMaxAbs = std::max(usedMaxAbs, absValue);
+                    if (dof < 3) {
+                        usedMaxAbsByDof[dof] = std::max(usedMaxAbsByDof[dof], absValue);
+                    }
+                    usedSumSq += value * value;
+                    ++usedCount;
+                }
+            }
+        }
+
+        const double eigenvalue = mode < eigenvalues.size() ? eigenvalues[mode] : 0.0;
+        const double rawRms = rawCount > 0 ? std::sqrt(rawSumSq / static_cast<double>(rawCount)) : 0.0;
+        const double usedRms = usedCount > 0 ? std::sqrt(usedSumSq / static_cast<double>(usedCount)) : 0.0;
+
+        out << runIndex << '\t'
+            << toolAngle << '\t'
+            << newAngle << '\t'
+            << mode << '\t'
+            << eigenvalue << '\t'
+            << static_cast<qulonglong>(rawCount) << '\t'
+            << rawMaxAbs << '\t'
+            << rawRms << '\t'
+            << static_cast<qulonglong>(usedCount) << '\t'
+            << usedMaxAbs << '\t'
+            << usedRms << '\t'
+            << usedMaxAbsByDof[0] << '\t'
+            << usedMaxAbsByDof[1] << '\t'
+            << usedMaxAbsByDof[2] << '\n';
+    }
 }
 
 bool writeResidualStressConfigSnapshot(const QString& baseConfigPath,
@@ -544,7 +627,7 @@ int CutsimBroaching::setVisulization(int* visulization_item, std::array<double, 
 
 int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h_MyViewer, int* visulization_item, std::array<double, 2> visulization_limits)
 {
-    constexpr bool enableModalAnalysis = false;
+    const bool enableModalAnalysis = modalAnalysisEnabled;
     const bool enableResidualRelease = residualReleaseEnabled;
 
     for (cutsim::CutterVolume* tool : myTools) {
@@ -578,6 +661,49 @@ int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h
             h_MyViewer->Redraw();
             });
         };
+    auto colorBarTitle = [](int item) {
+        switch (item) {
+        case 1:
+            return QStringLiteral("Ux");
+        case 2:
+            return QStringLiteral("Uy");
+        case 3:
+            return QStringLiteral("Uz");
+        default:
+            return QStringLiteral("U magnitude");
+        }
+        };
+    auto syncDynamicColorBar = [&]() {
+        if (!mdichild || !mdichild->q3dView) {
+            return;
+        }
+
+        double minVal = std::numeric_limits<double>::max();
+        double maxVal = -std::numeric_limits<double>::max();
+        bool found = false;
+
+        for (cutsim::CutterVolume* tool : myTools) {
+            auto* broach = dynamic_cast<cutsim::broaching_AptCutterVolume*>(tool);
+            if (!broach || !std::isfinite(broach->deform_color_min) || !std::isfinite(broach->deform_color_max)) {
+                continue;
+            }
+
+            minVal = std::min(minVal, broach->deform_color_min);
+            maxVal = std::max(maxVal, broach->deform_color_max);
+            found = true;
+        }
+
+        if (!found || maxVal <= minVal) {
+            return;
+        }
+
+        const QString title = colorBarTitle(visulization_item ? *visulization_item : 0);
+        runOnUiThread([=]() {
+            if (mdichild->q3dView) {
+                mdichild->q3dView->setColorBarVisible(true, title, minVal, maxVal);
+            }
+            });
+        };
     refreshViewer(false, 0, 0, 0, false);
     if (enableModalAnalysis) {
         peformModalAnalysis();
@@ -590,7 +716,7 @@ int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h
     }
 
     cutsim::broaching_AptCutterVolume* s2 = dynamic_cast<cutsim::broaching_AptCutterVolume*>(myTools[0]);
-    for (double t = 0; t <= 50; t = t + incrementive_time)
+    for (double t = 0; t <= 100; t = t + incrementive_time)
     {
         setVisulization(visulization_item, visulization_limits);
         double x = 0 + s2->v_x * t;//更新刀具位移点
@@ -611,6 +737,7 @@ int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h
         s2->cut_h.clear();//清空切削厚度             
         s2->cut_h_map.clear();
         myBroachCutsim->updateGL();
+        syncDynamicColorBar();
         refreshViewer(true, x, y, z, true);
 
         emit ApplyUpdateViewer();
@@ -667,8 +794,8 @@ int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h
             qDebug() << "tool_angle: " << s2->tool_angle;
 
             // 迭代计算：变形影响切削力，切削力影响变形
-            const int max_iterations = 100;
-            const double convergence_threshold = 0.001; // 收敛阈值,3N
+            const int max_iterations = 3;
+            const double convergence_threshold = 0.03; // 收敛阈值
             double force_change = 1e6; // 初始化为大值
 
             // 存储上一次的力数据用于收敛检查
@@ -694,6 +821,7 @@ int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h
                 s2->setMachiningResidualEventsEnabled(false);
                 s2->calculateTotalForce();
                 s2->outputForceData("data/Force");
+                s2->outputDeformedBladePointsData("data/DeformedBladePoints");
                 if (enableModalAnalysis) {
                     s2->calculatestockVibration();
                 }
@@ -791,6 +919,7 @@ int CutsimBroaching::performFEMSimulation(MdiChild* mdichild, Handle(MyViewer) h
             //Msg::ShowInfo("Stroke:");
         }
         myBroachCutsim->updateGL();
+        syncDynamicColorBar();
         refreshViewer(true, x, y, z, true);
         emit ApplyUpdateViewer();
         finalStroke = sqrt(x * x + y * y + z * z);
@@ -836,9 +965,17 @@ int CutsimBroaching::peformModalAnalysis()
     std::vector<double> materialprops;
     materialprops.push_back(density); materialprops.push_back(youngsmodulus); materialprops.push_back(poisson);
     runEx12p(meshFile, materialprops, s0->vibration_values, s0->pre_vibration_vectors);//调用模态分析程序
-    std::vector<size_t> target_modes = { 0,1,2,3,4,5 };
+    std::vector<size_t> target_modes = { 0,1 };
     s0->vibration_vectors = s0->convertTo3DVibrationVectors(s0->pre_vibration_vectors, 3, target_modes);
     s0->updatestockVibrParams();
+    static int modalAnalysisRunIndex = 0;
+    appendModalVectorStats(QDir("data/Modal").filePath("modal_vector_stats.tsv"),
+        modalAnalysisRunIndex++,
+        s0->tool_angle,
+        s0->new_angle,
+        s0->vibration_values,
+        s0->pre_vibration_vectors,
+        s0->vibration_vectors);
     for (int currentTool = 1; currentTool < myTools.size(); currentTool++)
     {
         cutsim::broaching_AptCutterVolume* s2 = dynamic_cast<cutsim::broaching_AptCutterVolume*>(myTools[currentTool]);

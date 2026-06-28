@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Force Data Viewer</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="title-block">
+      <h1>Force data viewer</h1>
+      <div id="subtitle" class="muted">data/Force/force_data_*.txt</div>
+    </div>
+
+    <div class="toolbar">
+      <button id="openDirBtn" type="button">Select folder</button>
+      <button id="openFilesBtn" type="button">Import TXT</button>
+
+      <label class="field">
+        <span>Angle</span>
+        <select id="caseSelect" disabled></select>
+      </label>
+
+      <label class="field">
+        <span>Blade</span>
+        <select id="bladeCompareSelect" disabled></select>
+      </label>
+
+      <fieldset class="component-picker" aria-label="Force components">
+        <label><input id="showMagnitude" type="checkbox" checked> |F|</label>
+        <label><input id="showFx" type="checkbox" checked> fx</label>
+        <label><input id="showFy" type="checkbox" checked> fy</label>
+        <label><input id="showFz" type="checkbox" checked> fz</label>
+      </fieldset>
+
+      <button id="exportBtn" type="button" disabled>Export PNG</button>
+    </div>
+  </header>
+
+  <main class="content">
+    <section id="dropZone" class="drop-zone">
+      <div>
+        <div class="drop-title">No force data loaded</div>
+        <div class="drop-subtitle">Select the data/Force folder or drop force_data_*.txt files here.</div>
+      </div>
+    </section>
+
+    <section id="summary" class="summary" hidden></section>
+    <section id="trendPanel" class="figure-panel trend-panel" hidden>
+      <div class="figure-head">
+        <h2 id="trendTitle">Signed total force trend</h2>
+        <div class="muted">Across loaded force_data files. Zero-line crossings show signed global component reversals.</div>
+      </div>
+      <canvas id="trendCanvas" class="trend-canvas"></canvas>
+    </section>
+    <section id="bladeComparePanel" class="figure-panel compare-panel" hidden>
+      <div class="figure-head">
+        <h2 id="bladeCompareTitle">Blade force comparison</h2>
+        <div id="bladeCompareNote" class="muted">Select a blade to compare its signed cutting-force totals across files.</div>
+      </div>
+      <canvas id="bladeCompareCanvas" class="compare-canvas"></canvas>
+    </section>
+    <section id="figurePanel" class="figure-panel" hidden>
+      <div class="figure-head">
+        <h2 id="figureTitle">Force profile overview</h2>
+        <div id="figureNote" class="muted">One panel per blade. Curves show force magnitude and signed force components.</div>
+      </div>
+      <canvas id="overviewCanvas" class="overview-canvas"></canvas>
+    </section>
+    <section id="bladeGrid" class="blade-grid" hidden></section>
+  </main>
+
+  <input id="dirInput" type="file" webkitdirectory multiple hidden>
+  <input id="fileInput" type="file" accept=".txt,text/plain" multiple hidden>
+
+  <script src="./app.js"></script>
+</body>
+</html>

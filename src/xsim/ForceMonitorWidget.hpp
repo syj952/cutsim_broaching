@@ -25,6 +25,7 @@ public:
 
 private:
     void setupUI();
+    void updateForceAxis();
 
     QChart* chart;
     QLineSeries* seriesX;
@@ -34,8 +35,11 @@ private:
     QValueAxis* axisForce;        // ���᣺��
 
     double minDis = 0.0;
+    double displacementAxisWindowMm = 200.0;
     double maxDis = 10.0; // ��ʼ��Χ 10mm
     double minForce = 0.0;
+    int forceAxisWindowPoints = 30;
+    double minForceAxisSpan = 10.0;
     double maxForce = 100.0; // ��ʼ����
     bool firstPoint = true;  // ����Ƿ�Ϊ��һ���㣬���ڳ�ʼ����Χ
 };

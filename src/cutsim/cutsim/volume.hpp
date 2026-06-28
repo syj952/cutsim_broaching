@@ -1093,6 +1093,7 @@ namespace cutsim {
         void getCurrentTotalForce(double* Fx, double* Fy, double* Fz);
         void outputTotalForceData(const std::string& output_dir);
         void outputForceData(const std::string& output_dir);
+        void outputDeformedBladePointsData(const std::string& output_dir);
         double K_fc_correct, K_fcn_correct, k_fc, k_fcn;//径向、切向和轴向的剪切力系数,径向、切向和轴向的犁耕力系数,修正系数
 
         //刀具振动参数
@@ -1124,6 +1125,8 @@ namespace cutsim {
         std::vector<std::vector<double>>pre_vibration_vectors;//每一行代表每个模态对应的特征向量
         std::vector<std::vector<std::vector<double>>>vibration_vectors;//每一行代表每个模态对应的特征向量<模态阶数><自由度方向>
         std::vector<std::vector<std::vector<double>>>temp_vibration_vectors;//每一行代表每个模态对应的特征向量<模态阶数><自由度方向>
+        std::vector<double> vibration_mode_max_abs;
+        double modal_displacement_limit_mm;
         std::vector<std::vector<std::vector<double>>>
             convertTo3DVibrationVectors(const std::vector<std::vector<double>>& pre_vibration_vectors,
                 int num_dofs,

@@ -2,6 +2,9 @@
 #include <QVBoxLayout>
 #include <QFile>
 #include <QTextStream>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 
 ForceMonitorWidget::ForceMonitorWidget(QWidget* parent) : QWidget(parent) {
     setupUI();
@@ -9,7 +12,7 @@ ForceMonitorWidget::ForceMonitorWidget(QWidget* parent) : QWidget(parent) {
 
 void ForceMonitorWidget::setupUI() {
     chart = new QChart();
-    //chart->setTitle("������ - λ����������");
+    //chart->setTitle("????????? - ????????????????");
     chart->legend()->setAlignment(Qt::AlignTop);
 
     seriesX = new QLineSeries(this); seriesX->setName("Fx");
@@ -20,16 +23,17 @@ void ForceMonitorWidget::setupUI() {
     chart->addSeries(seriesY);
     chart->addSeries(seriesZ);
 
-    // ����λ�ƺ���
+    // ??????????????
     axisDisplacement = new QValueAxis();
     axisDisplacement->setTitleText("Stroke (mm)");
+    maxDis = displacementAxisWindowMm;
     axisDisplacement->setRange(minDis, maxDis);
     axisDisplacement->setLabelFormat("%.2f");
 
-    // ����������
+    // ???????????????
     axisForce = new QValueAxis();
     axisForce->setTitleText("Force (N)");
-    axisForce->setRange(-50, 500); // ����ʵ�ʹ���Ԥ��
+    axisForce->setRange(-50, 500); // ??????????????????
 
     chart->addAxis(axisDisplacement, Qt::AlignBottom);
     chart->addAxis(axisForce, Qt::AlignLeft);
@@ -39,7 +43,7 @@ void ForceMonitorWidget::setupUI() {
     seriesZ->attachAxis(axisDisplacement); seriesZ->attachAxis(axisForce);
 
     QChartView* chartView = new QChartView(chart);
-    chartView->setRenderHint(QPainter::Antialiasing); // �����
+    chartView->setRenderHint(QPainter::Antialiasing); // ????????
 
     QVBoxLayout* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -47,36 +51,66 @@ void ForceMonitorWidget::setupUI() {
 }
 
 void ForceMonitorWidget::updateData(double displacement, double fx, double fy, double fz) {
-    // ������ݵ�
+    // ????????????
     seriesX->append(displacement, fx);
     seriesY->append(displacement, fy);
     seriesZ->append(displacement, fz);
 
-    // ��̬���� X �᷶Χ
-    if (displacement > maxDis) {
-        maxDis = displacement * 1.2; // ��� 20% ������
-        axisDisplacement->setRange(minDis, maxDis);
+    // ?????????? X ????
+    const double window = std::max(displacementAxisWindowMm, 1.0);
+    maxDis = std::max(window, displacement);
+    minDis = maxDis - window;
+    axisDisplacement->setRange(minDis, maxDis);
+
+    // 3. ??????????????????????????
+    updateForceAxis();
+    // ???????????????? 15% ???????????????????????
+    // ?????????????????????????????????????????????????????????????????
+}
+
+void ForceMonitorWidget::updateForceAxis() {
+    const QVector<QPointF> xPoints = seriesX->pointsVector();
+    const QVector<QPointF> yPoints = seriesY->pointsVector();
+    const QVector<QPointF> zPoints = seriesZ->pointsVector();
+    const int count = qMin(xPoints.size(), qMin(yPoints.size(), zPoints.size()));
+    if (count <= 0) {
+        return;
     }
 
-    // 3. ������������ֵ����Ӧ
-    double currentMin = std::min({ fx, fy, fz });
-    double currentMax = std::max({ fx, fy, fz });
+    const int start = std::max(0, count - forceAxisWindowPoints);
+    double currentMin = std::numeric_limits<double>::max();
+    double currentMax = -std::numeric_limits<double>::max();
 
-    if (firstPoint) {
-        minForce = currentMin;
-        maxForce = currentMax;
-        firstPoint = false;
-    }
-    else {
-        if (currentMin < minForce) minForce = currentMin;
-        if (currentMax > maxForce) maxForce = currentMax;
-    }
-    // Ϊ���������� 15% �ı߾࣬������������
-    double padding = (maxForce - minForce) * 0.15;
-    // �������������С�ҽӽ������綼��0������һ��Ĭ����С����
-    if (padding < 1.0) padding = 10.0;
+    auto includePoint = [&](double value) {
+        if (!std::isfinite(value)) {
+            return;
+        }
+        currentMin = std::min(currentMin, value);
+        currentMax = std::max(currentMax, value);
+    };
 
-    axisForce->setRange(minForce - padding, maxForce + padding);
+    for (int i = start; i < count; ++i) {
+        includePoint(xPoints[i].y());
+        includePoint(yPoints[i].y());
+        includePoint(zPoints[i].y());
+    }
+
+    if (currentMax < currentMin) {
+        return;
+    }
+
+    double span = currentMax - currentMin;
+    if (span < minForceAxisSpan) {
+        const double center = 0.5 * (currentMin + currentMax);
+        span = minForceAxisSpan;
+        currentMin = center - 0.5 * span;
+        currentMax = center + 0.5 * span;
+    }
+
+    const double padding = std::max(span * 0.15, 1.0);
+    minForce = currentMin - padding;
+    maxForce = currentMax + padding;
+    axisForce->setRange(minForce, maxForce);
 }
 
 void ForceMonitorWidget::clearData() {
@@ -85,7 +119,8 @@ void ForceMonitorWidget::clearData() {
     seriesZ->clear();
     minForce = 0.0;
     maxForce = 100.0;
-    maxDis = 10.0;
+    minDis = 0.0;
+    maxDis = displacementAxisWindowMm;
     firstPoint = true;
     axisDisplacement->setRange(0, maxDis);
     axisForce->setRange(minForce, maxForce);
@@ -98,7 +133,7 @@ bool ForceMonitorWidget::hasData() const {
 bool ForceMonitorWidget::exportDataToCsv(const QString& filePath, QString* errorMessage) const {
     if (!hasData()) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("当前没有切削力数据可导出。");
+            *errorMessage = QStringLiteral("No cutting force data to export.");
         }
         return false;
     }
@@ -106,7 +141,7 @@ bool ForceMonitorWidget::exportDataToCsv(const QString& filePath, QString* error
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         if (errorMessage) {
-            *errorMessage = QStringLiteral("无法创建切削力数据文件：") + filePath;
+            *errorMessage = QStringLiteral("Cannot create cutting force data file: ") + filePath;
         }
         return false;
     }

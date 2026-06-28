@@ -330,6 +330,7 @@ void runEx12p(const std::string& meshFile,
 
     QStringList arguments;
     arguments << "-m" << QDir::toNativeSeparators(meshPath);
+    arguments << "-n" << "5";
     arguments << "--rho" << QString::number(materialprops[0], 'f', 12);
     arguments << "--young" << QString::number(materialprops[1], 'f', 2);
     arguments << "--nu" << QString::number(materialprops[2], 'f', 2);

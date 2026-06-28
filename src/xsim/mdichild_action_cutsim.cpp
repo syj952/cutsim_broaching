@@ -262,7 +262,7 @@ void MdiChild::RunCutsim()
     QHBoxLayout* simulationLayout = new QHBoxLayout();
     QLabel* simulationLabel = new QLabel("Simulation (total time, steptime for cut and mfem):");
     QLineEdit* totaltimeEdit = new QLineEdit("70");
-    QLineEdit* steptime_material_removal_Edit = new QLineEdit("1.0");
+    QLineEdit* steptime_material_removal_Edit = new QLineEdit("2.0");
     QLineEdit* steptime_MFEM_Edit = new QLineEdit("25");
     simulationLayout->addWidget(simulationLabel);
     simulationLayout->addWidget(totaltimeEdit);
@@ -274,6 +274,9 @@ void MdiChild::RunCutsim()
     QCheckBox* residualStressCheck = new QCheckBox("启用加工残余应力测试");
     residualStressCheck->setChecked(true);
     broachingLayout->addWidget(residualStressCheck);
+    QCheckBox* modalAnalysisCheck = new QCheckBox("启用模态分析");
+    modalAnalysisCheck->setChecked(false);
+    broachingLayout->addWidget(modalAnalysisCheck);
     QHBoxLayout* constraintLayout = new QHBoxLayout();
     QLabel* constraintsLabel = new QLabel("Constrains:");
     constraintLayout->addWidget(constraintsLabel);
@@ -352,6 +355,7 @@ void MdiChild::RunCutsim()
         broachpar.simulation[1] = steptime_material_removal_Edit->text().toDouble();
         broachpar.simulation[2] = steptime_MFEM_Edit->text().toDouble();
         broachpar.enable_machining_residual_stress = residualStressCheck->isChecked();
+        broachpar.enable_modal_analysis = modalAnalysisCheck->isChecked();
         broachpar.force_coefs[0][0] = a0KcEdit->text().toDouble();
         broachpar.force_coefs[0][1] = a1KcEdit->text().toDouble();
         broachpar.force_coefs[0][2] = a2KcEdit->text().toDouble();
@@ -863,7 +867,7 @@ void MdiChild::ExportCutsimResults()
 void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfile, QString BladeAnglesfile)
 {
     using broaching::CutsimBroaching;
-    CutsimBroaching* myBroach = new CutsimBroaching(9);
+    CutsimBroaching* myBroach = new CutsimBroaching(10);
     double partoffset[3] = { 0,0,0 };
     double octreecenter[3] = { 0,0,0 };
 
@@ -946,8 +950,10 @@ void MdiChild::braoching_executeSimulation(QString stlfile, QString edgePointsfi
     myBroach->setVelocity(broachpar.velocity[0], broachpar.velocity[1], broachpar.velocity[2]);
     myBroach->setSimulationTimes(broachpar.simulation[0], broachpar.simulation[1], broachpar.simulation[2]); // total simulation time, increment time, very time for modal analysis
     myBroach->setResidualReleaseEnabled(broachpar.enable_machining_residual_stress);
+    myBroach->setModalAnalysisEnabled(broachpar.enable_modal_analysis);
     qDebug() << "Machining residual stress test enabled:"
         << broachpar.enable_machining_residual_stress;
+    qDebug() << "Modal analysis enabled:" << broachpar.enable_modal_analysis;
     myBroach->newBroach(broachpar.force_coefs);
     myBroach->addBroachs(edgePointsfile);
     //myBroach->performFEMSimulation(h_MyViewer);

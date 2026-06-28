@@ -21,11 +21,15 @@
 
 
 #include <cassert>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <src/cutsim/cutsim_def.hpp>
 
 #include <QFile>
+#include <QDir>
+#include <QFileInfo>
 #include <QTextStream>
 
 #include "volume.hpp"
@@ -1499,6 +1503,7 @@ namespace cutsim {
         machining_residual_step_id = 0;
         machining_residual_stroke_mm = 0.0;
         machining_residual_events_enabled = false;
+        modal_displacement_limit_mm = 0.05;
     }
 
     namespace {
@@ -2079,6 +2084,7 @@ namespace cutsim {
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(2) << tool_angle;  // 婵烇絽娲︾换鍕汲閳?婵炶揪绲界粔鎾儍椤掑嫬鏋佸ù鑲╃節缂傚鏌涜箛鎾缎ｉ柡瀣暞缁傛帞鎹勯悜妯衡偓鎶藉级閳轰焦鍠橀柡?
         std::string file_path = output_dir + "/force_data_" + oss.str() + ".txt";
+        std::string debug_file_path = output_dir + "/force_direction_debug_" + oss.str() + ".txt";
 
         // 闂佸憡甯楃粙鎴犵磽閹捐崵宓侀柤鎼佹涧閳數鈧鍠掗崑鎾绘煛閸屾碍鐭楁繛鍡愬灲閺佸秹宕奸敐搴㈣埞闂佺儵鏅滈悧妤勫暞閻庢鍠栨蹇曟?
         std::ofstream out_file(file_path);
@@ -2088,6 +2094,19 @@ namespace cutsim {
         }
 
         // 闂佸搫琚崕鍙夌珶濡￥浜归柟鎯у暱椤ゅ懐鈧鎮堕崕閬嶅矗鐠恒劍鍠嗛柟鐑樺灥椤斿﹪鎮楅悽鍨殌缂併劍鐓￠幆鍐礋椤愩埄娼濋梺杞拌兌婢ф鐣?
+        out_file << "tool_angle\tblade_id\tpoint_index\tforce_position_id"
+            << "\tx\ty\tz"
+            << "\tfx\tfy\tfz\tforce_magnitude"
+            << "\tforce_cuth\tk_fc\tk_fcn"
+            << "\tforce_t_x\tforce_t_y\tforce_t_z"
+            << "\tforce_f_x\tforce_f_y\tforce_f_z";
+        for (size_t mode = 0; mode < vibration_vectors.size(); ++mode) {
+            for (size_t dof = 0; dof < vibration_vectors[mode].size(); ++dof) {
+                out_file << "\tmode_" << mode << "_dof_" << dof;
+            }
+        }
+        out_file << std::endl;
+
         auto angle_it = cutnum_angle_force_map.find(tool_angle);
         if (angle_it != cutnum_angle_force_map.end()) {
             // 闂備緡鍓欑粔鏉戭啅閺勫繈浜归柟鎯у暱椤ゅ懘鎮峰▎鎰瑨閻庣娅曠粙澶屸偓锝庡亜椤ｆ煡鏌￠崼婵愭Ц闁搞劋绶氶幃褔宕查幙鐘绘倵閻㈠灚鍤€缂併劍鐓￠幆鍐礋椤愩埄娼濋梺杞拌兌婢ф鐣?
@@ -2096,21 +2115,35 @@ namespace cutsim {
                 // 闂備緡鍓欑粔鏉戭啅閺勫繈浜归柟鎯у暱椤ゅ懘鏌涢幒鍡椾壕闂佺粯顨呭Σ妤ф繛鎴炴尭椤戝棙鏅跺澶婂珘濠㈣泛锕ら～鏃堟煛娴ｅ搫顣肩€?
                 for (const auto& force_pair : blade_pair.second) {
                     const ForceData& fd = force_pair.second;
+                    const int point_index = force_pair.first;
+                    const double force_magnitude = fd.force_value.norm();
                     // 闂佸憡鍔栭悷銉╁矗閸℃稒鏅慨姗嗗亞缁夊绱撻崘顏呮珴闂侀潧妫旂花婊堟煏閸℃洜鐨鹃梺鎸庣☉閼活垱鎱ㄥ婊堟煏閸℃洜鐨介梺闈涙缁ㄦ繈鏌ㄥ☉妯垮闁搞劌绻樺畷婊勭節閸屾俺鈷堥柟鑹版彧鐠侊絿妲愬┑鍥╊浄闁靛鍎遍幐銈夋煕濮橆剙顏俊顖欑窔瀵?闂佺厧顨庢禍鐐哄极鏉堛劍鍎熼柨鏃傚亾閻ｉ亶鏌熼崜鎻掔仩濠殿喒鏅犲畷銉╁箣閿曗偓濞?
-                    out_file << fd.force_position.x << "\t"
+                    out_file << tool_angle << "\t"
+                        << blade_id << "\t"
+                        << point_index << "\t"
+                        << fd.force_position_id << "\t"
+                        << fd.force_position.x << "\t"
                         << fd.force_position.y << "\t"
                         << fd.force_position.z << "\t"
                         << fd.force_value.x << "\t"
                         << fd.force_value.y << "\t"
                         << fd.force_value.z << "\t"
+                        << force_magnitude << "\t"
                         << fd.force_cuth << "\t"
                         << fd.k_fc << "\t"
-                        << fd.k_fcn << "\t";
+                        << fd.k_fcn << "\t"
+                        << fd.force_t.x << "\t"
+                        << fd.force_t.y << "\t"
+                        << fd.force_t.z << "\t"
+                        << fd.force_f.x << "\t"
+                        << fd.force_f.y << "\t"
+                        << fd.force_f.z << "\t";
 
                     // 闂備緡鍓欑粔鏉戭啅婵犳艾绠ラ柍褜鍓熷鍨緞閹邦厸鏋嗛梺杞扮劍濠㈡﹢骞忔导瀛樺殜妞ゅ繐妫欓弳鐘诲箹鏉堟崘顓虹紒杈ㄧ箖濞煎繘骞橀崘鍙夌様闂佺懓澹婇崹鐗堟叏閳哄懎瑙﹂柟杈剧畱濞呫倝鏌℃担鍝勵暭鐎?
                     for (size_t mode = 0; mode < vibration_vectors.size(); ++mode) {
                         for (size_t dof = 0; dof < vibration_vectors[mode].size(); ++dof) {
-                            if (fd.force_position_id < vibration_vectors[mode][dof].size()) {
+                            if (fd.force_position_id >= 0 &&
+                                static_cast<size_t>(fd.force_position_id) < vibration_vectors[mode][dof].size()) {
                                 out_file << vibration_vectors[mode][dof][fd.force_position_id] << "\t";
                             }
                             else {
@@ -2124,6 +2157,94 @@ namespace cutsim {
         }
 
         out_file.close();
+    }
+
+    void broaching_AptCutterVolume::outputDeformedBladePointsData(const std::string& output_dir) {
+        if (real_blade_points_map.empty()) {
+            return;
+        }
+
+        const double angle_tolerance = 1e-6;
+        auto angle_it = real_blade_points_map.lower_bound(new_angle - angle_tolerance);
+        if (angle_it == real_blade_points_map.end() ||
+            std::abs(angle_it->first - new_angle) > angle_tolerance) {
+            qDebug() << "No deformed blade points for new_angle:" << new_angle;
+            return;
+        }
+
+        QDir dir;
+        if (!dir.mkpath(QString::fromStdString(output_dir))) {
+            std::cerr << "Failed to create output directory: " << output_dir << std::endl;
+            return;
+        }
+
+        std::ostringstream tool_angle_stream;
+        tool_angle_stream << std::fixed << std::setprecision(3) << tool_angle;
+        std::ostringstream map_angle_stream;
+        map_angle_stream << std::fixed << std::setprecision(3) << angle_it->first;
+
+        for (const auto& blade_pair : angle_it->second) {
+            const int blade_id = blade_pair.first;
+            std::ostringstream file_path_stream;
+            file_path_stream << output_dir
+                << "/deformed_blade_points_tool_"
+                << tool_angle_stream.str()
+                << "_map_"
+                << map_angle_stream.str()
+                << "_blade_"
+                << blade_id
+                << ".txt";
+
+            std::ofstream out_file(file_path_stream.str());
+            if (!out_file.is_open()) {
+                std::cerr << "Failed to open deformed blade points file: "
+                    << file_path_stream.str() << std::endl;
+                continue;
+            }
+
+            out_file << "tool_angle\tmap_angle\tblade_id\tpoint_index\tsample_index"
+                << "\toriginal_x\toriginal_y\toriginal_z"
+                << "\tx\ty\tz"
+                << "\tdx\tdy\tdz\tdxz" << std::endl;
+            out_file << std::fixed << std::setprecision(9);
+
+            const auto& point_groups = blade_pair.second;
+            for (size_t point_index = 0; point_index < point_groups.size(); ++point_index) {
+                const auto& samples = point_groups[point_index];
+                for (size_t sample_index = 0; sample_index < samples.size(); ++sample_index) {
+                    const GLVertex& point = samples[sample_index];
+                    GLVertex original(0.0, 0.0, 0.0);
+                    const bool has_original =
+                        blade_id >= 0 &&
+                        static_cast<size_t>(blade_id) < blade_points.size() &&
+                        point_index < blade_points[blade_id].size();
+                    if (has_original) {
+                        original = blade_points[blade_id][point_index];
+                    }
+
+                    const double deform_x = point.x - original.x;
+                    const double deform_y = point.y - original.y;
+                    const double deform_z = point.z - original.z;
+                    const double deform_xz = std::hypot(deform_x, deform_z);
+
+                    out_file << tool_angle << "\t"
+                        << angle_it->first << "\t"
+                        << blade_id << "\t"
+                        << point_index << "\t"
+                        << sample_index << "\t"
+                        << original.x << "\t"
+                        << original.y << "\t"
+                        << original.z << "\t"
+                        << point.x << "\t"
+                        << point.y << "\t"
+                        << point.z << "\t"
+                        << deform_x << "\t"
+                        << deform_y << "\t"
+                        << deform_z << "\t"
+                        << deform_xz << std::endl;
+                }
+            }
+        }
     }
 
     void broaching_AptCutterVolume::calculateTotalForce() {
@@ -2219,9 +2340,25 @@ namespace cutsim {
     }
 
     void broaching_AptCutterVolume::updatestockVibrParams() {
+
         // 婵烇絽娴傞崰妤呭极閸忚偐鈻旈柛婵嗗閸炪劌霉濠婂啫顒㈤懚鈺呮煙椤戣儻鍏屾繛鍫熷灴瀹曪綁宕掑☉娆愵啀闁荤姳绶ょ槐鏇㈡偩?
+
+        temp_vibration_vectors = vibration_vectors;
         vibr_k_eff.resize(vibration_values.size());
         vibr_stock_c.resize(vibration_values.size());
+        vibration_mode_max_abs.assign(vibration_vectors.size(), 0.0);
+        for (size_t mode_index = 0; mode_index < vibration_vectors.size(); ++mode_index) {
+            double max_abs = 0.0;
+            for (const auto& dof_values : vibration_vectors[mode_index]) {
+                for (double value : dof_values) {
+                    const double abs_value = std::abs(value);
+                    if (abs_value > max_abs) {
+                        max_abs = abs_value;
+                    }
+                }
+            }
+            vibration_mode_max_abs[mode_index] = max_abs;
+        }
         for (size_t mode = 0; mode < vibration_values.size(); ++mode) {
             double lambda = vibration_values[mode]; // 闂佺粯顨堥幊鎾舵濞戙垹纾?
             double omega = sqrt(lambda);           // 闂佹悶鍎抽崕銈咃耿娴ｇ櫢绱ｉ柟瀵稿Т閼?
@@ -2244,8 +2381,14 @@ namespace cutsim {
 
     void broaching_AptCutterVolume::calculatestockVibration() {
         // 闂佸吋鍎抽崲鑼躲亹閸ヮ剚鍤婃い蹇撴閺嗙娀骞栨潏楣冩闁哄棛鍠栭弻宀冪疀閹炬潙顏┑鈽嗗灙閸撴繈鍩€椤戣法鍔嶉柡鍡欏枛閺?
-        const size_t num_dofs = vibration_vectors[0].size();
-        const size_t num_modes = vibration_vectors.size();
+        if (temp_vibration_vectors.empty()) {
+            temp_vibration_vectors = vibration_vectors;
+        }
+        if (temp_vibration_vectors.empty() || temp_vibration_vectors[0].empty()) {
+            return;
+        }
+        const size_t num_dofs = temp_vibration_vectors[0].size();
+        const size_t num_modes = temp_vibration_vectors.size();
 
         // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宓懐歇闂佸憡鎸哥粔鐑斤綖濡や焦鍎熼柨鏃囨硶閻熸捇鏌ｉ妸銉ヮ仾閻忓繒鍠栧畷婵嬪Ω閵夈儲顥濋梺?
         vibration_q[new_angle].resize(num_modes, 0.0);
@@ -2255,6 +2398,25 @@ namespace cutsim {
         // 闂佸憡甯楃换鍌烇綖閹版澘绀岄柡宥冨妼閻╀線鏌涢弬璇插鐎殿噮鍓熷顐﹀级鐠恒劍鎲奸梺绋胯閸斿海鍒掗妸鈺佸嚑闁告帗鍔曡灒闁斥晛鍟犻崑鎾寸▕?
         current_vibration_q.resize(num_modes);
         next_vibration_q.resize(num_modes);
+
+        QDir().mkpath("data/Modal");
+        const QString modal_response_path = QDir("data/Modal").filePath("modal_response_debug.tsv");
+        const QFileInfo modal_response_info(modal_response_path);
+        const bool write_modal_response_header =
+            !modal_response_info.exists() || modal_response_info.size() == 0;
+        QFile modal_response_file(modal_response_path);
+        const bool modal_response_writable =
+            modal_response_file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text);
+        QTextStream modal_response_out(&modal_response_file);
+        if (modal_response_writable) {
+            modal_response_out.setRealNumberNotation(QTextStream::FixedNotation);
+            modal_response_out.setRealNumberPrecision(12);
+            if (write_modal_response_header) {
+                modal_response_out << "tool_angle\tnew_angle\tmode\tlambda\tvibr_k_eff"
+                    << "\tf_total\tf_eff_total\tq_previous\tq_raw\tq_final"
+                    << "\tq_limit\tphi_max_abs\tclipped\n";
+            }
+        }
 
         // 缂佺虎鍙庨崰鏇犳崲濮橆厾鈻斿┑鐘辫兌椤忛亶鏌￠崘銊у煟婵☆偄鐏濋～銏ゅΨ閵夈儺娼濋梺鍛婄閸ㄥ潡宕抽悜妯虹窞鐟滃秹鎯冮鈧～銏ゆ晲閸ワ絺鍋?
         if (vibration_f_prev.size() != num_modes) {
@@ -2301,12 +2463,49 @@ namespace cutsim {
             double relaxation_factor = 0.7; // 闂佸搫顦伴崕宕囨闁秴鐐婇柣妯垮皺閹藉秹鏌?-1婵炴垶鏌ㄩ澶娢?
             // 闂佸搫娲ら悺銊╁蓟婵犲洤绠版い鏍ㄨ壘琚熼梺鍛婄懃閸婂綊寮抽悢鍏兼櫖闁割偅绻勯幗鐘绘煕鐏炶濡奸柟顔兼喘閹虫盯顢旈崱妯绘闁硅壈鎻紓姘辩不閿濆妞界€光偓鐎ｎ剛顦?
             current_vibration_q[mode] = next_vibration_q[mode];
-            next_vibration_q[mode] = current_vibration_q[mode] * (1 - relaxation_factor) +
+            const double q_raw = current_vibration_q[mode] * (1 - relaxation_factor) +
                 (f_eff_total / vibr_k_eff[mode]) * relaxation_factor;
+            next_vibration_q[mode] = q_raw;
+
+            if (!std::isfinite(next_vibration_q[mode])) {
+                next_vibration_q[mode] = current_vibration_q[mode];
+            }
+
+            double q_limit = std::numeric_limits<double>::infinity();
+            double phi_max_abs = 0.0;
+            bool clipped = false;
+            if (mode < vibration_mode_max_abs.size() && vibration_mode_max_abs[mode] > 1e-12) {
+                phi_max_abs = vibration_mode_max_abs[mode];
+                const double max_displacement = std::max(1e-6, std::abs(modal_displacement_limit_mm));
+                q_limit = max_displacement / vibration_mode_max_abs[mode];
+                if (next_vibration_q[mode] > q_limit) {
+                    next_vibration_q[mode] = q_limit;
+                    clipped = true;
+                }
+                else if (next_vibration_q[mode] < -q_limit) {
+                    next_vibration_q[mode] = -q_limit;
+                    clipped = true;
+                }
+            }
 
 
 
             vibration_q[new_angle][mode] = next_vibration_q[mode];
+            if (modal_response_writable) {
+                modal_response_out << tool_angle << '\t'
+                    << new_angle << '\t'
+                    << mode << '\t'
+                    << vibration_values[mode] << '\t'
+                    << vibr_k_eff[mode] << '\t'
+                    << f_total << '\t'
+                    << f_eff_total << '\t'
+                    << current_vibration_q[mode] << '\t'
+                    << q_raw << '\t'
+                    << next_vibration_q[mode] << '\t'
+                    << q_limit << '\t'
+                    << phi_max_abs << '\t'
+                    << (clipped ? 1 : 0) << '\n';
+            }
 
             //std::cerr << "Mode:" << mode
             //    << " f_eff=" << f_eff_total

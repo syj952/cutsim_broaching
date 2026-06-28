@@ -1059,6 +1059,56 @@ int MdiChild::generateAbaqusINP(bool twoD_threeD, double V, double t, double lam
     return 0;
 };
 
+/**
+ * @brief Generates an Abaqus input deck for sequential multi-tool broaching.
+ *
+ * @details
+ * The routine writes a coupled temperature-displacement Abaqus/Explicit model
+ * containing one workpiece domain and one rigid tool part for every cutting
+ * layer. Depending on @p SimulationType, the workpiece is represented by a
+ * Lagrangian mesh, an ALE adaptive mesh, or a coupled Eulerian-Lagrangian
+ * (CEL) domain with initially empty (void) cells around the material region.
+ *
+ * The generated deck includes graded workpiece, void, and tool meshes; rake,
+ * clearance, inclination, edge-hone, and flank-wear geometry; thermomechanical
+ * material data; Johnson-Cook workpiece plasticity; frictional thermal contact;
+ * sequential cutting and feed steps; and force/moment history output at every
+ * tool reference point.
+ *
+ * Geometry values are interpreted in millimetres and angles in degrees. Step
+ * times are calculated as travel distance divided by cutting velocity, so
+ * velocities should normally be supplied in mm/s for the mm-N-s-tonne unit
+ * system used by the generated material data. Two-dimensional connectivity is
+ * generated for Lagrangian and ALE simulations; a requested three-dimensional
+ * model is retained only for the CEL path.
+ *
+ * @pre All per-tool vectors must be non-empty and have identical lengths.
+ * @pre Every cutting velocity and uncut chip thickness must be positive.
+ * @pre Input geometry must avoid singular trigonometric or logarithmic terms.
+ *
+ * @param filepathName Destination path of the Abaqus `.inp` file.
+ * @param DimensionType Requested dimension: `2` for plane strain or `3` for a
+ *        three-dimensional model.
+ * @param SimulationType Workpiece formulation: `0` for Lagrangian, `1` for
+ *        ALE, or `2` for CEL.
+ * @param DistanceBetweenTool Travel distance between consecutive tools.
+ * @param VelocityVector Cutting velocity of each tool.
+ * @param UCTVector Uncut chip thickness of each cutting layer.
+ * @param LambdaVector Tool inclination angle of each layer.
+ * @param GammaVector Tool rake angle of each layer.
+ * @param AlphaVector Tool clearance angle of each layer.
+ * @param HoneRadiusVector Cutting-edge hone radius of each layer.
+ * @param MiuVector Coulomb friction coefficient of each tool-workpiece pair.
+ * @param VBVector Flank-wear land width of each tool.
+ * @param AlphaVBVector Flank-wear land angle of each tool.
+ *
+ * @return `0` when the input deck is written successfully, or `1` when the
+ *         destination file cannot be opened.
+ *
+ * @note This function overwrites @p filepathName and does not validate vector
+ *       sizes or all geometric singularities before indexing and calculation.
+ * @see generateAbaqusINP()
+ */
 int MdiChild::generateAbaqusMultiCutsINP(QString filepathName, int DimensionType, int SimulationType,
     double DistanceBetweenTool, std::vector<double> VelocityVector,
     std::vector<double> UCTVector, std::vector<double> LambdaVector,
@@ -1253,7 +1303,7 @@ int MdiChild::generateAbaqusMultiCutsINP(QString filepathName, int DimensionType
     // Open output file
     ofstream fid(filepathName.toUtf8().constData());
     if (!fid.is_open()) {
-        cerr << "Error opening file!" << std::endl;
+        std::cerr << "Error opening file!" << std::endl;
         return 1;
     }
     // Write header
@@ -1428,8 +1478,9 @@ int MdiChild::generateAbaqusMultiCutsINP(QString filepathName, int DimensionType
             ToolYOffsetVector.push_back(WorkYOffsetVector[index_cutter] - UCTVector[index_cutter]);
         }
         PreviousChipFlowHeight = ChipFlowHeight;
-        // Tool
-        //cx和 cy：这两行定义了在 x 和 y 方向上的归一化网格坐标，范围从 0 到 1。步长由 Dt / CutterElementCharactorLength和 Dc / CutterElementCharactorLength计算并向上取整（ceil函数）决定，这通常是为了控制网格的密度或分辨率 。NormlizedDistanceWorkThickness：z 方向的网格定义取决于布尔变量 plane_strain（可能表示是否为平面应变问题）：如果 plane_strain为真，NormlizedDistanceWorkThickness简单地取[0, 1]，可能表示在 z 方向只考虑一个单位厚度或无需细分。如果 plane_strain为假，则 z 方向的网格点根据(W + 2 * Dv) / (ChipFlowElementYDirExponent * 4)的计算结果确定步长，从而生成从 0 到 1 的序列
+        // Build a normalized structured grid for the current tool. Plane
+        // strain uses one element through the thickness; the 3-D CEL path
+        // spans the workpiece width and both lateral void margins.
 
         fid << "*Part, name=tool_" << index_cutter << "\n";
         double ToolHeight = ChipFlowHeight + 3 * UCTVector[index_cutter];
@@ -1462,24 +1513,23 @@ int MdiChild::generateAbaqusMultiCutsINP(QString filepathName, int DimensionType
             cz = linspace(0, 1, ceil((WorkThickness + 2 * VoidGapLength) / (ChipFlowElementYDirExponent * 4)) + 1);
         }
 
-        // Tool geometry calculations
-        //这部分代码定义了四个点的坐标(a_i, b_i)，可能代表一个特定几何形状（如梯形或特定边界）的角点
-        //(a1, b1)是原点(0, 0)。
-        //(a2, b2)的 x 坐标由 ToolHeight和角度 gamma的正切值计算，y 坐标为 ToolHeight。
-        //(a3, b3)和(a4, b4)的 x 坐标基于 a1、a2中的较大值加上 Dt，y 坐标分别为 Dc和由 a2 + Dt与角度 alpha的正切计算的值。
+        // Define the four corners of the worn tool profile in the local x-y
+        // plane. Its upper and lower boundaries follow the rake angle and the
+        // wear-land/clearance angles, respectively.
         double a1 = 0; double b1 = 0;
         double a2 = ToolHeight * tan(GammaVector[index_cutter] * M_PI / 180); double b2 = ToolHeight;
         double a3 = max(a1, a2) + Dt_VB + ToolHeight * tan(GammaVector[index_cutter] * M_PI / 180); double b3 = ToolHeight;
         double a4 = max(a1, a2) + Dt_VB; double b4 = (a2 + Dt_VB) * tan(alpha_VB * M_PI / 180);
-        //这部分计算了一个圆的圆心(ao, bo)以及该圆与从原点出发的两条射线（斜率可能为 b2 / a2和 b4 / a4）的切点坐标(a5, b5)和(a6, b6)
-        //计算中使用了半径 r和勾股定理等几何关系。
+        // Locate the hone-circle centre and its tangency points on the rake
+        // face and wear land so the sharp corner can be projected onto an arc.
         double ao = r * (sqrt(a2 * a2 + b2 * b2) / a2 + sqrt(a4 * a4 + b4 * b4) / a4) / (b2 / a2 - b4 / a4);
         double bo = b2 / a2 * ao - r * sqrt(a2 * a2 + b2 * b2) / a2;
         double a5 = (ao + b4 / a4 * bo) / (1 + (b4 / a4) * (b4 / a4));
         double b5 = b4 / a4 * a5;
         double a6 = (ao + b2 / a2 * bo) / (1 + (b2 / a2) * (b2 / a2));
         double b6 = b2 / a2 * a6;
-        //最后这部分计算了一系列系数 h1到 h6。这些系数很可能用于后续构建一个几何变换矩阵，以便将不规则区域映射到规则网格上进行计算
+        // Compute the projective mapping coefficients that transform the
+        // normalized rectangular grid into the first quadrilateral tool block.
         double h6 = -(a2 + a4 - a3 - (a4 - a3) / (b4 - b3) * (b2 - b3 + b4)) /
             (a2 - a3 - (a4 - a3) / (b4 - b3) * (b2 - b3));
         double h5 = (-(b2 - b3 + b4) - (b2 - b3) * h6) / (b4 - b3);
